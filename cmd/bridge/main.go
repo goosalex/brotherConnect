@@ -12,10 +12,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
+	"time"
 
 	"brotherConnect/internal/bridge"
 	"brotherConnect/internal/config"
@@ -29,6 +32,16 @@ var version = "0.1.0-dev"
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// One-shot discovery mode: list connected printers and exit. Handled before
+	// config so it needs no device token.
+	if slices.Contains(os.Args[1:], "-list-printers") || slices.Contains(os.Args[1:], "--list-printers") {
+		if err := listPrinters(); err != nil {
+			log.Error("printer discovery failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := config.Load(os.Args[1:], version)
 	if err != nil {
@@ -44,18 +57,50 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// TODO(phase1): replace stub with real USB discovery (libusb/gousb).
-	backend := printer.NewStubBackend(nil)
+	// Real USB discovery where a backend exists (macOS in Phase 1); otherwise
+	// fall back to the stub so the bridge still runs.
+	disc, err := printer.NewUSBDiscoverer(printer.USBOptions{})
+	if err != nil {
+		log.Warn("USB discovery unavailable; using stub backend", "err", err)
+		disc = printer.NewStubBackend(nil)
+	}
+
+	// TODO(phase1): the raster Driver (actual printing to the device) is not yet
+	// implemented; the stub Driver records jobs. Discovery above is real.
+	driver := printer.NewStubBackend(nil)
 
 	// TODO(phase1): replace fake dialer with a wss:// dialer that authenticates
 	// using cfg.DevToken and negotiates the protocol version.
 	dialer := transport.NewFakeDialer(transport.NewFakeConn())
 
-	b := bridge.New(cfg, dialer, backend, backend, log)
+	b := bridge.New(cfg, dialer, disc, driver, log)
 
 	if err := b.Run(ctx); err != nil && err != context.Canceled {
 		log.Error("bridge stopped", "err", err)
 		os.Exit(1)
 	}
 	log.Info("bridge stopped cleanly")
+}
+
+// listPrinters runs a single USB discovery scan and prints the connected
+// printers to stdout, then returns. It is the demonstrable Phase 1 discovery
+// path against real hardware.
+func listPrinters() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	printers, err := printer.ScanUSB(ctx)
+	if err != nil {
+		return err
+	}
+	if len(printers) == 0 {
+		fmt.Println("No supported Brother QL printers found on USB.")
+		return nil
+	}
+	fmt.Printf("Discovered %d printer(s):\n", len(printers))
+	for _, p := range printers {
+		fmt.Printf("  - %s\n      id=%s serial=%s connection=%s status=%s\n",
+			p.Model, p.ID, p.SerialNumber, p.Connection, p.Status)
+	}
+	return nil
 }

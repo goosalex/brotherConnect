@@ -77,9 +77,26 @@ func (b *Bridge) watchPrinters(ctx context.Context, events <-chan printer.Event)
 			if !ok {
 				return
 			}
+			b.logDiscovery(ev)
 			b.sendPrinterUpdate(ev.Printer, ev.Kind != printer.EventDisconnected)
 		}
 	}
+}
+
+// logDiscovery surfaces printer connect/disconnect/status events in the log so
+// they are visible even when the cloud connection is down.
+func (b *Bridge) logDiscovery(ev printer.Event) {
+	msg := map[printer.EventKind]string{
+		printer.EventConnected:     "printer connected",
+		printer.EventDisconnected:  "printer disconnected",
+		printer.EventStatusChanged: "printer status changed",
+	}[ev.Kind]
+	b.log.Info(msg,
+		"printer_id", ev.Printer.ID,
+		"model", ev.Printer.Model,
+		"serial", ev.Printer.SerialNumber,
+		"connection", ev.Printer.Connection,
+		"status", ev.Printer.Status)
 }
 
 func (b *Bridge) sendPrinterUpdate(p printer.Printer, available bool) {
