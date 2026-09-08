@@ -13,6 +13,8 @@ type fakeRunner struct {
 	calls    []recordedCall
 	lpstatV  []byte // `lpstat -v` output
 	lpstatP  []byte // `lpstat -l -p` output
+	ippOut   []byte // `ipptool` output
+	ippErr   error  // if set, ipptool fails and Status falls back to lpstat
 	lpStdin  []byte // captured stdin of the last `lp` call
 	lpErr    error
 	statErr  error
@@ -26,6 +28,8 @@ type recordedCall struct {
 func (f *fakeRunner) run(_ context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 	f.calls = append(f.calls, recordedCall{name: name, args: args})
 	switch {
+	case name == "ipptool":
+		return f.ippOut, f.ippErr
 	case name == "lpstat" && contains(args, "-v"):
 		return f.lpstatV, f.statErr
 	case name == "lpstat" && contains(args, "-p"):
@@ -93,10 +97,13 @@ func TestCUPSPrintUnknownPrinter(t *testing.T) {
 	}
 }
 
-func TestCUPSStatusMapsReasons(t *testing.T) {
+func TestCUPSStatusUsesLiveIPP(t *testing.T) {
+	// IPP reports out-of-media even though the CUPS queue reads "idle" -- the
+	// live device state must win.
 	fr := &fakeRunner{
 		lpstatV: []byte(lpstatVFixture),
-		lpstatP: []byte("printer Brother_QL_820NWB disabled since ...\n\treasons: media-empty-error"),
+		lpstatP: []byte("printer Brother_QL_820NWB is idle. enabled since ..."),
+		ippOut:  []byte("        printer-state (enum) = stopped\n        printer-state-reasons (keyword) = media-empty-error"),
 	}
 	d := newCUPS(fr)
 	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
@@ -106,6 +113,39 @@ func TestCUPSStatusMapsReasons(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st != StatusOutOfMedia {
-		t.Fatalf("status = %q, want out_of_media", st)
+		t.Fatalf("status = %q, want out_of_media (from live IPP)", st)
+	}
+}
+
+func TestCUPSStatusFallsBackToLpstat(t *testing.T) {
+	// When ipptool is unavailable, Status falls back to CUPS queue state.
+	fr := &fakeRunner{
+		lpstatV: []byte(lpstatVFixture),
+		lpstatP: []byte("printer Brother_QL_820NWB is idle. enabled since ..."),
+		ippErr:  context.DeadlineExceeded,
+	}
+	d := newCUPS(fr)
+	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
+
+	st, err := d.Status(context.Background(), "000D6G173970")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != StatusReady {
+		t.Fatalf("status = %q, want ready (lpstat fallback)", st)
+	}
+}
+
+func TestCUPSLoadedMedia(t *testing.T) {
+	fr := &fakeRunner{
+		lpstatV: []byte(lpstatVFixture),
+		ippOut:  []byte("        media-default (keyword) = custom_12x12mm_12x12mm"),
+	}
+	d := newCUPS(fr)
+	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
+
+	w, h, ok := d.LoadedMedia(context.Background(), "000D6G173970")
+	if !ok || w != 12 || h != 12 {
+		t.Fatalf("LoadedMedia = %v x %v (ok=%v), want 12 x 12", w, h, ok)
 	}
 }

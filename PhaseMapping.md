@@ -51,9 +51,10 @@ Goal: prove the local print path end-to-end with minimal auth.
   set up as a driverless **ippusb/AirPrint** queue, so raw Brother raster may
   need a `usb://`/`socket://` raw queue or URF/PWG raster instead. Validate with
   `bridge -print <server-raster-file>` when the printer is on.
-- Printer status (§9a): live status comes from CUPS printer-state-reasons, which
-  for this ippusb queue only reflect the device when CUPS contacts it; queue
-  state alone reads "ready" even when the device is off.
+- Printer status (§9a): read live from the device via IPP get-printer-attributes
+  (printer-state + printer-state-reasons), not CUPS queue state. Verified against
+  the real QL-820NWB, which also reports its loaded media (12x12mm) used for the
+  §8 size check. Falls back to lpstat only if ipptool is unavailable.
 - trencitos UI (⊘): server-side, out of scope for this repo.
 
 ## Phase 2 — Core product

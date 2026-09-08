@@ -2,6 +2,8 @@ package printer
 
 import (
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -125,4 +127,88 @@ func containsAny(s string, subs ...string) bool {
 		}
 	}
 	return false
+}
+
+// ippAttrValue extracts the value after "= " for an IPP attribute line whose
+// name matches attr, from `ipptool -tv ... get-printer-attributes` output, e.g.
+//
+//	printer-state-reasons (keyword) = media-empty-error,cover-open
+//
+// Returns the trimmed value and whether the attribute was found. Multiple lines
+// for the same attribute are joined with commas.
+func ippAttrValue(out []byte, attr string) (string, bool) {
+	var vals []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, attr+" ") {
+			continue
+		}
+		if _, v, ok := strings.Cut(line, "= "); ok {
+			vals = append(vals, strings.TrimSpace(v))
+		}
+	}
+	if len(vals) == 0 {
+		return "", false
+	}
+	return strings.Join(vals, ","), true
+}
+
+// parseIPPState maps a device's live IPP attributes (printer-state and
+// printer-state-reasons from get-printer-attributes) to a coarse status. This is
+// the real device status per Requirements.md §9a, sourced from the printer
+// rather than the CUPS queue. Reasons take precedence over the state enum.
+func parseIPPState(out []byte) Status {
+	reasons, _ := ippAttrValue(out, "printer-state-reasons")
+	r := strings.ToLower(reasons)
+	switch {
+	case containsAny(r, "media-empty", "media-needed", "input-tray-missing"):
+		return StatusOutOfMedia
+	case containsAny(r, "cover-open", "door-open"):
+		return StatusCoverOpen
+	case containsAny(r, "jam", "marker", "toner", "ink", "spool-area-full", "-error"):
+		return StatusError
+	case containsAny(r, "offline", "connecting-to-device", "shutdown", "timed-out", "unplugged"):
+		return StatusOffline
+	case containsAny(r, "paused", "moving-to-paused"):
+		return StatusBusy
+	}
+
+	state, _ := ippAttrValue(out, "printer-state (enum)")
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "processing":
+		return StatusBusy
+	case "stopped":
+		return StatusError
+	case "idle":
+		return StatusReady
+	}
+	return StatusReady
+}
+
+// pwgMediaSize matches the WxH millimetre dimensions embedded in a PWG media
+// keyword, e.g. "custom_12x12mm_12x12mm" or "om_something_50x70mm".
+var pwgMediaSize = regexp.MustCompile(`(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)mm`)
+
+// parseIPPMedia extracts the loaded media size (mm) from a device's IPP
+// media-ready/media-default attribute. Returns width, height and ok. This lets
+// the bridge validate a job's requested label size against the loaded media
+// (Requirements.md §8).
+func parseIPPMedia(out []byte) (width, height float64, ok bool) {
+	media, found := ippAttrValue(out, "media-ready")
+	if !found {
+		media, found = ippAttrValue(out, "media-default")
+	}
+	if !found {
+		return 0, 0, false
+	}
+	m := pwgMediaSize.FindStringSubmatch(media)
+	if m == nil {
+		return 0, 0, false
+	}
+	w, err1 := strconv.ParseFloat(m[1], 64)
+	h, err2 := strconv.ParseFloat(m[2], 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return w, h, true
 }

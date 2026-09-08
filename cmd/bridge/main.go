@@ -128,8 +128,14 @@ func listPrinters() error {
 				status = live
 			}
 		}
-		fmt.Printf("  - %s\n      id=%s serial=%s connection=%s status=%s\n",
-			p.Model, p.ID, p.SerialNumber, p.Connection, status)
+		media := ""
+		if mr, ok := driver.(printer.MediaReporter); ok && derr == nil {
+			if w, h, ok := mr.LoadedMedia(ctx, p.ID); ok {
+				media = fmt.Sprintf(" media=%gx%gmm", w, h)
+			}
+		}
+		fmt.Printf("  - %s\n      id=%s serial=%s connection=%s status=%s%s\n",
+			p.Model, p.ID, p.SerialNumber, p.Connection, status, media)
 	}
 	return nil
 }

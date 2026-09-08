@@ -62,3 +62,55 @@ func TestNormalizeModel(t *testing.T) {
 		}
 	}
 }
+
+// Real ipptool get-printer-attributes output captured with the printer on.
+const ipptoolFixture = `        printer-is-accepting-jobs (boolean) = true
+        printer-state (enum) = idle
+        printer-state-message (textWithoutLanguage) =
+        printer-state-reasons (keyword) = none
+        media-default (keyword) = custom_12x12mm_12x12mm`
+
+func TestParseIPPStateFixture(t *testing.T) {
+	if got := parseIPPState([]byte(ipptoolFixture)); got != StatusReady {
+		t.Fatalf("parseIPPState(fixture) = %q, want ready", got)
+	}
+}
+
+func TestParseIPPStateReasons(t *testing.T) {
+	cases := map[string]Status{
+		"printer-state-reasons (keyword) = media-empty-error":       StatusOutOfMedia,
+		"printer-state-reasons (keyword) = cover-open-warning":      StatusCoverOpen,
+		"printer-state-reasons (keyword) = media-jam-error":         StatusError,
+		"printer-state-reasons (keyword) = marker-supply-empty":     StatusError,
+		"printer-state-reasons (keyword) = connecting-to-device":    StatusOffline,
+		"printer-state (enum) = processing":                         StatusBusy,
+		"printer-state (enum) = stopped":                            StatusError,
+		"printer-state (enum) = idle":                               StatusReady,
+	}
+	for in, want := range cases {
+		if got := parseIPPState([]byte(in)); got != want {
+			t.Errorf("parseIPPState(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestParseIPPStateReasonsBeatState(t *testing.T) {
+	// A live fault reason must override an "idle" state enum.
+	in := "printer-state (enum) = idle\nprinter-state-reasons (keyword) = cover-open-error"
+	if got := parseIPPState([]byte(in)); got != StatusCoverOpen {
+		t.Fatalf("got %q, want cover_open (reason beats state)", got)
+	}
+}
+
+func TestParseIPPMedia(t *testing.T) {
+	w, h, ok := parseIPPMedia([]byte(ipptoolFixture))
+	if !ok || w != 12 || h != 12 {
+		t.Fatalf("parseIPPMedia = %v x %v (ok=%v), want 12 x 12", w, h, ok)
+	}
+	// media-ready takes precedence over media-default.
+	both := "media-ready (keyword) = om_label_50x70mm\nmedia-default (keyword) = custom_12x12mm_12x12mm"
+	w, h, ok = parseIPPMedia([]byte(both))
+	if !ok || w != 50 || h != 70 {
+		t.Fatalf("parseIPPMedia(both) = %v x %v (ok=%v), want 50 x 70", w, h, ok)
+	}
+}

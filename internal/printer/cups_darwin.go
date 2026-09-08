@@ -49,8 +49,9 @@ type cupsDriver struct {
 }
 
 var (
-	_ Driver    = (*cupsDriver)(nil)
-	_ Registrar = (*cupsDriver)(nil)
+	_ Driver        = (*cupsDriver)(nil)
+	_ Registrar     = (*cupsDriver)(nil)
+	_ MediaReporter = (*cupsDriver)(nil)
 )
 
 // NewCUPSDriver returns a CUPS-backed Driver for macOS.
@@ -115,19 +116,46 @@ func (d *cupsDriver) Print(ctx context.Context, id string, raster []byte) error 
 	return nil
 }
 
-// Status queries the printer's CUPS state and maps it to a coarse status. This
-// reflects queue state plus any printer-state-reasons CUPS exposes; richer
-// device status (media size, exact fault) requires the device online.
+// Status reports the printer's live status. It queries the device's IPP
+// attributes (get-printer-attributes) for the real printer-state and
+// printer-state-reasons (Requirements.md §9a) and falls back to CUPS queue state
+// only if the IPP query is unavailable.
 func (d *cupsDriver) Status(ctx context.Context, id string) (Status, error) {
 	p := d.lookup(id)
 	queue, err := d.resolveQueue(ctx, p)
 	if err != nil {
 		return StatusOffline, err
 	}
+	if out, err := d.ippAttributes(ctx, queue); err == nil {
+		return parseIPPState(out), nil
+	}
+	// Fallback: coarse CUPS queue state.
 	out, err := d.runner.run(ctx, "lpstat", []string{"-l", "-p", queue}, nil)
 	if err != nil {
-		// A failed query most likely means the device/queue is unreachable.
 		return StatusOffline, nil
 	}
 	return parsePrinterState(out), nil
+}
+
+// LoadedMedia returns the media size (mm) currently loaded in the printer, read
+// from the device's IPP media-ready/media-default attribute. Implements
+// MediaReporter (Requirements.md §8).
+func (d *cupsDriver) LoadedMedia(ctx context.Context, id string) (width, height float64, ok bool) {
+	p := d.lookup(id)
+	queue, err := d.resolveQueue(ctx, p)
+	if err != nil {
+		return 0, 0, false
+	}
+	out, err := d.ippAttributes(ctx, queue)
+	if err != nil {
+		return 0, 0, false
+	}
+	return parseIPPMedia(out)
+}
+
+// ippAttributes fetches the device's IPP printer attributes via ipptool against
+// the local CUPS proxy, which forwards to the physical printer.
+func (d *cupsDriver) ippAttributes(ctx context.Context, queue string) ([]byte, error) {
+	uri := "ipp://localhost/printers/" + queue
+	return d.runner.run(ctx, "ipptool", []string{"-tv", uri, "get-printer-attributes.test"}, nil)
 }

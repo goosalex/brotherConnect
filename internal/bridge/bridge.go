@@ -79,31 +79,52 @@ func (b *Bridge) watchPrinters(ctx context.Context, events <-chan printer.Event)
 			if !ok {
 				return
 			}
-			b.logDiscovery(ev)
-			// Register with the driver so it can resolve this printer (by model,
-			// for CUPS) when a job for it arrives.
-			if reg, ok := b.driver.(printer.Registrar); ok && ev.Kind != printer.EventDisconnected {
-				reg.Register(ev.Printer)
+			p := ev.Printer
+			available := ev.Kind != printer.EventDisconnected
+			if available {
+				// Register with the driver so it can resolve this printer (by
+				// model, for CUPS) when a job arrives, and enrich the discovery
+				// placeholder with the driver's live device status and loaded
+				// media (Requirements.md §9a, §8).
+				if reg, ok := b.driver.(printer.Registrar); ok {
+					reg.Register(p)
+				}
+				p = b.enrichFromDriver(ctx, p)
 			}
-			b.sendPrinterUpdate(ev.Printer, ev.Kind != printer.EventDisconnected)
+			b.logDiscovery(ev.Kind, p)
+			b.sendPrinterUpdate(p, available)
 		}
 	}
 }
 
+// enrichFromDriver replaces discovery's placeholder status with the driver's
+// live device status and fills in loaded media where the driver supports it.
+func (b *Bridge) enrichFromDriver(ctx context.Context, p printer.Printer) printer.Printer {
+	if st, err := b.driver.Status(ctx, p.ID); err == nil {
+		p.Status = st
+	}
+	if mr, ok := b.driver.(printer.MediaReporter); ok {
+		if w, h, ok := mr.LoadedMedia(ctx, p.ID); ok {
+			p.LoadedWidthMM, p.LoadedHeightMM = w, h
+		}
+	}
+	return p
+}
+
 // logDiscovery surfaces printer connect/disconnect/status events in the log so
 // they are visible even when the cloud connection is down.
-func (b *Bridge) logDiscovery(ev printer.Event) {
+func (b *Bridge) logDiscovery(kind printer.EventKind, p printer.Printer) {
 	msg := map[printer.EventKind]string{
 		printer.EventConnected:     "printer connected",
 		printer.EventDisconnected:  "printer disconnected",
 		printer.EventStatusChanged: "printer status changed",
-	}[ev.Kind]
+	}[kind]
 	b.log.Info(msg,
-		"printer_id", ev.Printer.ID,
-		"model", ev.Printer.Model,
-		"serial", ev.Printer.SerialNumber,
-		"connection", ev.Printer.Connection,
-		"status", ev.Printer.Status)
+		"printer_id", p.ID,
+		"model", p.Model,
+		"serial", p.SerialNumber,
+		"connection", p.Connection,
+		"status", p.Status)
 }
 
 func (b *Bridge) sendPrinterUpdate(p printer.Printer, available bool) {

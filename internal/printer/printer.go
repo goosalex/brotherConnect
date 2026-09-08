@@ -97,3 +97,10 @@ type Driver interface {
 type Registrar interface {
 	Register(Printer)
 }
+
+// MediaReporter is an optional Driver capability to read the media size (in mm)
+// currently loaded in a printer, for validating a job's requested label size
+// against the loaded media (Requirements.md §8).
+type MediaReporter interface {
+	LoadedMedia(ctx context.Context, id string) (width, height float64, ok bool)
+}
