@@ -17,7 +17,7 @@ Goal: agree the trencitos-facing contract before bridge coding begins.
 | API endpoint contract (all operations) | §14 | trencitos team | ☐ |
 | WSS message contract + version negotiation | §5, §14 | trencitos team | ☐ |
 | Print-job schema | §8 | trencitos team | ☐ |
-| Server-rendered Brother raster format | §8 | Brother raster spec | ☐ |
+| Payload format decision (PDF/PNG vs raster) | §8 | field finding: native raster not deliverable on macOS | ☐ |
 | Max job payload size + error model | §10 | trencitos team | ☐ |
 | In-scope PoC printer model(s) fixed | §2 | hardware availability | ☐ |
 
@@ -45,12 +45,18 @@ Goal: prove the local print path end-to-end with minimal auth.
 - WSS connection (◐): client, handshake, heartbeat, and backoff reconnect are
   built and tested against an in-memory fake; the real `wss://` dialer is not
   wired yet (blocked on the Phase 0 contract).
-- Print path (◐): the CUPS driver resolves the queue and sends server raster via
-  `lp -o raw`; queue-match and flow are unit-tested with a fake runner, but a
-  real print has not been validated on hardware. Open question: the QL-820NWB is
-  set up as a driverless **ippusb/AirPrint** queue, so raw Brother raster may
-  need a `usb://`/`socket://` raw queue or URF/PWG raster instead. Validate with
-  `bridge -print <server-raster-file>` when the printer is on.
+- Print path (◐): **validated on real hardware** — a physical label prints from
+  `bridge -print`. Resolved the open question the hard way: native Brother raster
+  is **not deliverable** to this macOS driverless (AirPrint/ippusb) printer. We
+  confirmed, in order: `lp -o raw` jams the device (`other-error`/`spool-area-full`);
+  raw CUPS queues are "no longer supported on macOS"; direct libusb is denied
+  (`Access denied`); the printer's command mode had to be set to Raster and still
+  jammed. What works: submitting a document (PNG/PDF) through the CUPS filter
+  chain (no `-o raw`) with a custom page size — CUPS converts to URF and prints.
+  The driver was reworked accordingly (drop `-o raw`, size the page from the job
+  dimensions). A "tiny print" bug traced to the queue's default 12x12mm media,
+  fixed by supplying `PageSize=Custom.<W>x<H>mm`. Consequence: payload format is a
+  Phase 0 decision — see Requirements §8 (recommend server emits PDF/PNG + dims).
 - Printer status (§9a): read live from the device via IPP get-printer-attributes
   (printer-state + printer-state-reasons), not CUPS queue state. Verified against
   the real QL-820NWB, which also reports its loaded media (12x12mm) used for the

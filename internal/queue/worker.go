@@ -73,10 +73,15 @@ func (w *worker) process(ctx context.Context, j job.Job) {
 		return
 	}
 
-	// Apply copies by repeating the payload (Requirements.md §8).
+	// Apply copies by repeating the payload (Requirements.md §8). The label
+	// dimensions size the page so the document fills the label.
+	opts := printer.PrintOptions{
+		WidthMM:  j.Dimensions.WidthMM,
+		HeightMM: j.Dimensions.HeightMM,
+	}
 	var printErr error
 	for i := 0; i < j.Copies; i++ {
-		if printErr = w.q.driver.Print(ctx, j.PrinterID, j.Payload); printErr != nil {
+		if printErr = w.q.driver.Print(ctx, j.PrinterID, j.Payload, opts); printErr != nil {
 			break
 		}
 	}

@@ -51,8 +51,12 @@ type Job struct {
 	PrinterID  string            `json:"printer_id"`
 	Dimensions Dimensions        `json:"dimensions"`
 	Copies     int               `json:"copies"`
-	Payload    []byte            `json:"payload"` // server-generated Brother raster
-	CreatedAt  time.Time         `json:"created_at"`
+	// Payload is the server-generated print document. Its format is a Phase 0
+	// contract decision (Requirements.md §8): macOS driverless printers require a
+	// CUPS-renderable format (image/PDF/URF); native Brother raster is only
+	// deliverable where a raw path exists (Linux lp device, network port 9100).
+	Payload   []byte    `json:"payload"`
+	CreatedAt time.Time `json:"created_at"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 

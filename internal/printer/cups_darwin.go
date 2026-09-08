@@ -111,20 +111,34 @@ func (d *cupsDriver) resolveQueue(ctx context.Context, p Printer) (cupsQueue, er
 	return cupsQueue{Name: name}, nil
 }
 
-// Print sends the raster payload to the printer via `lp -d <queue> -o raw`.
-func (d *cupsDriver) Print(ctx context.Context, id string, raster []byte) error {
-	if len(raster) == 0 {
-		return fmt.Errorf("empty raster payload")
+// Print submits doc to the printer through the CUPS filter chain (NOT `-o raw`).
+//
+// This macOS printer is driverless (AirPrint/ippusb): it accepts only formats
+// the OS renders to URF (image/PDF/URF), and native Brother raster cannot be
+// delivered — raw CUPS queues are unsupported on macOS, direct libusb is denied
+// by the OS, and `-o raw` over ippusb makes the device jam. So the payload is a
+// printable document, and CUPS converts it. The label dimensions set a custom
+// page size so the output fills the label instead of the small default media.
+func (d *cupsDriver) Print(ctx context.Context, id string, doc []byte, opts PrintOptions) error {
+	if len(doc) == 0 {
+		return fmt.Errorf("empty document")
 	}
 	p := d.lookup(id)
 	queue, err := d.resolveQueue(ctx, p)
 	if err != nil {
 		return err
 	}
-	// -o raw bypasses CUPS filters so the server-generated Brother raster
-	// reaches the device untransformed. -T titles the job for diagnostics.
-	args := []string{"-d", queue.Name, "-o", "raw", "-T", "brotherConnect"}
-	if _, err := d.runner.run(ctx, "lp", args, raster); err != nil {
+	args := []string{"-d", queue.Name, "-T", "brotherConnect"}
+	if opts.WidthMM > 0 && opts.HeightMM > 0 {
+		// Custom.WIDTHxHEIGHTmm is the CUPS page-size form this queue exposes;
+		// without it CUPS uses the default media (e.g. 12x12mm) and shrinks the
+		// output. fit-to-page then scales the document to that page.
+		args = append(args,
+			"-o", fmt.Sprintf("PageSize=Custom.%gx%gmm", opts.WidthMM, opts.HeightMM),
+			"-o", "fit-to-page")
+	}
+	// doc is piped on stdin; CUPS auto-detects the format from its content.
+	if _, err := d.runner.run(ctx, "lp", args, doc); err != nil {
 		return fmt.Errorf("submit print job to %q: %w", queue.Name, err)
 	}
 	return nil

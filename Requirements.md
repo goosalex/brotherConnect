@@ -209,12 +209,31 @@ A print job must include:
 - Creation timestamp
 - Optional metadata
 
-The initial implementation should use server-generated Brother raster data to
-ensure consistent output across platforms. Because raster is rendered
-server-side, label dimensions in the job are used by the bridge only to validate
-against the printer's currently loaded media; the bridge does not re-render the
-label. `Copies` is applied by the bridge by repeating the print of the supplied
-payload.
+The payload is rendered server-side so output is consistent across platforms and
+the bridge does not re-render the label. The label dimensions in the job size the
+print (page size) and are validated against the loaded media. `Copies` is applied
+by the bridge by repeating the print of the supplied payload.
+
+**Payload format is a Phase 0 contract decision, and it is platform-dependent.**
+Field testing on macOS (see below) showed the original "server sends native
+Brother raster, bridge streams it verbatim" model does not work for driverless
+(AirPrint/IPP) printers. The payload format must therefore be agreed per the
+delivery path:
+
+- **macOS driverless (AirPrint/ippusb) printers:** the payload must be a
+  document the OS print system can render — `image/png`, `application/pdf`, or
+  `image/urf`. The bridge submits it through the CUPS filter chain (not raw),
+  supplying the label dimensions as a custom page size so output fills the label.
+  Native Brother raster cannot be delivered here: raw CUPS queues are unsupported
+  on modern macOS, direct USB (libusb) is denied by the OS, and raw-over-IPP
+  makes the device jam.
+- **Native Brother raster (ESC/P):** only deliverable where a raw byte path
+  exists — a Linux USB printer device (`/dev/usb/lp*`) or the printer's network
+  raw port (TCP 9100). Not available for USB-connected printers on macOS.
+
+Recommended default: the server emits a rendered document (PDF or PNG) plus the
+label dimensions; the bridge sizes and submits it. This keeps one server output
+across platforms and lets each platform's print system handle device specifics.
 
 If the job's label dimensions do not match the printer's loaded media, the
 bridge must fail the job with a clear, human-readable reason rather than print
@@ -504,7 +523,10 @@ own criteria pass.
 
 - Define the API endpoints (Section 14) and WSS message contract with trencitos
 - Agree protocol version negotiation, maximum job payload size, and error model
-- Agree the print-job schema and the server-rendered Brother raster format
+- Agree the print-job schema and the **payload format** (Section 8). Field
+  testing showed native Brother raster is not deliverable to macOS driverless
+  printers; recommended default is a server-rendered document (PDF or PNG) plus
+  label dimensions, which the bridge sizes and submits per platform.
 
 ### Phase 1 — Proof of concept
 

@@ -57,44 +57,72 @@ func newCUPS(r commandRunner) *cupsDriver {
 	return &cupsDriver{runner: r, known: map[string]Printer{}, endpoints: map[string]string{}}
 }
 
-func TestCUPSPrintResolvesQueueAndSendsRaw(t *testing.T) {
+func TestCUPSPrintResolvesQueueAndSubmitsDocument(t *testing.T) {
 	fr := &fakeRunner{lpstatV: []byte(lpstatVFixture)}
 	d := newCUPS(fr)
 	// The bridge registers the discovered printer so the driver knows its model.
 	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB", SerialNumber: "000D6G173970"})
 
-	raster := []byte{0x1B, 0x40, 0xDE, 0xAD}
-	if err := d.Print(context.Background(), "000D6G173970", raster); err != nil {
+	doc := []byte{0x89, 'P', 'N', 'G'} // pretend PNG
+	err := d.Print(context.Background(), "000D6G173970", doc, PrintOptions{WidthMM: 62, HeightMM: 45})
+	if err != nil {
 		t.Fatalf("Print: %v", err)
 	}
 
-	// The raster must be sent verbatim on lp's stdin.
-	if string(fr.lpStdin) != string(raster) {
-		t.Fatalf("lp stdin = %v, want raster %v", fr.lpStdin, raster)
+	// The document must be sent verbatim on lp's stdin.
+	if string(fr.lpStdin) != string(doc) {
+		t.Fatalf("lp stdin = %v, want doc %v", fr.lpStdin, doc)
 	}
-	// The lp call must target the resolved queue with -o raw.
 	var lpArgs []string
 	for _, c := range fr.calls {
 		if c.name == "lp" {
 			lpArgs = c.args
 		}
 	}
-	if !contains(lpArgs, "Brother_QL_820NWB") || !contains(lpArgs, "raw") {
-		t.Fatalf("lp args = %v, want queue + raw", lpArgs)
+	// Must target the queue, size the page, and NOT use -o raw (which fails on
+	// macOS driverless printers).
+	if !contains(lpArgs, "Brother_QL_820NWB") {
+		t.Fatalf("lp args = %v, want target queue", lpArgs)
+	}
+	if contains(lpArgs, "raw") {
+		t.Fatalf("lp args = %v, must not contain -o raw", lpArgs)
+	}
+	if !contains(lpArgs, "PageSize=Custom.62x45mm") || !contains(lpArgs, "fit-to-page") {
+		t.Fatalf("lp args = %v, want custom page size + fit-to-page", lpArgs)
 	}
 }
 
-func TestCUPSPrintRejectsEmptyRaster(t *testing.T) {
+func TestCUPSPrintNoDimensionsOmitsPageSize(t *testing.T) {
+	fr := &fakeRunner{lpstatV: []byte(lpstatVFixture)}
+	d := newCUPS(fr)
+	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
+	if err := d.Print(context.Background(), "000D6G173970", []byte{0x01}, PrintOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var lpArgs []string
+	for _, c := range fr.calls {
+		if c.name == "lp" {
+			lpArgs = c.args
+		}
+	}
+	for _, a := range lpArgs {
+		if strings.HasPrefix(a, "PageSize=") {
+			t.Fatalf("did not expect a PageSize with zero dimensions, got %v", lpArgs)
+		}
+	}
+}
+
+func TestCUPSPrintRejectsEmptyDocument(t *testing.T) {
 	d := newCUPS(&fakeRunner{lpstatV: []byte(lpstatVFixture)})
-	if err := d.Print(context.Background(), "x", nil); err == nil {
-		t.Fatal("expected error for empty raster")
+	if err := d.Print(context.Background(), "x", nil, PrintOptions{}); err == nil {
+		t.Fatal("expected error for empty document")
 	}
 }
 
 func TestCUPSPrintUnknownPrinter(t *testing.T) {
 	d := newCUPS(&fakeRunner{lpstatV: []byte(lpstatVFixture)})
 	// Unregistered id that doesn't match any queue model.
-	err := d.Print(context.Background(), "nonexistent-serial", []byte{0x01})
+	err := d.Print(context.Background(), "nonexistent-serial", []byte{0x01}, PrintOptions{})
 	if err == nil || !strings.Contains(err.Error(), "no CUPS queue") {
 		t.Fatalf("err = %v, want no-queue-match error", err)
 	}

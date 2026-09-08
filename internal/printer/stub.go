@@ -79,8 +79,8 @@ func (b *StubBackend) List() []Printer {
 	return out
 }
 
-// Print records the raster payload against the target printer.
-func (b *StubBackend) Print(ctx context.Context, id string, raster []byte) error {
+// Print records the document against the target printer.
+func (b *StubBackend) Print(ctx context.Context, id string, doc []byte, opts PrintOptions) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	p, ok := b.printers[id]
@@ -90,8 +90,8 @@ func (b *StubBackend) Print(ctx context.Context, id string, raster []byte) error
 	if !p.Status.Printable() {
 		return ErrNotPrintable{ID: id, Status: p.Status}
 	}
-	cp := make([]byte, len(raster))
-	copy(cp, raster)
+	cp := make([]byte, len(doc))
+	copy(cp, doc)
 	b.printed[id] = append(b.printed[id], cp)
 	return nil
 }

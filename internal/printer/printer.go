@@ -82,11 +82,24 @@ type Discoverer interface {
 	List() []Printer
 }
 
-// Driver sends raster payloads to a specific printer and reports its status.
+// PrintOptions carries per-job print parameters. Label dimensions size the page
+// so the document fills the label rather than a small default (Requirements.md
+// §8). Zero dimensions mean "let the platform decide".
+type PrintOptions struct {
+	WidthMM  float64
+	HeightMM float64
+}
+
+// Driver sends a printable document to a printer and reports its status.
+//
+// The document is a platform-printable payload, not necessarily native Brother
+// raster: on macOS the printer is driverless (AirPrint/IPP) and only accepts
+// formats the OS print system can render (image/PDF/URF); native raster cannot
+// be delivered there. See the driver implementations and Requirements.md §8.
 type Driver interface {
-	// Print sends the raster payload to the printer identified by id. It blocks
-	// until the print completes or fails.
-	Print(ctx context.Context, id string, raster []byte) error
+	// Print sends doc to the printer identified by id and blocks until the job
+	// is submitted (or fails).
+	Print(ctx context.Context, id string, doc []byte, opts PrintOptions) error
 	// Status queries the live status of a printer.
 	Status(ctx context.Context, id string) (Status, error)
 }

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -140,13 +141,19 @@ func listPrinters() error {
 	return nil
 }
 
-// printFile sends the raster bytes in path to the first discovered printer via
-// the real system driver. It is a manual validation harness for the print path
-// against physical hardware (feed it a server-generated Brother raster file).
+// printFile sends the document in path to the first discovered printer via the
+// real system driver. It is a manual validation harness for the print path
+// against physical hardware. The payload should be a platform-printable document
+// (image/PDF/URF on macOS); label size defaults to 62x45mm, override with
+// -w/-h (mm). Usage: -print <file> [-w 62 -h 45].
 func printFile(path string) error {
-	raster, err := os.ReadFile(path)
+	doc, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read raster file: %w", err)
+		return fmt.Errorf("read document: %w", err)
+	}
+	opts := printer.PrintOptions{
+		WidthMM:  flagFloat(os.Args[1:], 62, "-w", "--width"),
+		HeightMM: flagFloat(os.Args[1:], 45, "-h", "--height"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -167,12 +174,23 @@ func printFile(path string) error {
 	if reg, ok := driver.(printer.Registrar); ok {
 		reg.Register(p)
 	}
-	fmt.Printf("Printing %d bytes to %s (%s)...\n", len(raster), p.Model, p.ID)
-	if err := driver.Print(ctx, p.ID, raster); err != nil {
+	fmt.Printf("Printing %d bytes to %s (%s) at %gx%gmm...\n",
+		len(doc), p.Model, p.ID, opts.WidthMM, opts.HeightMM)
+	if err := driver.Print(ctx, p.ID, doc, opts); err != nil {
 		return err
 	}
 	fmt.Println("Submitted to the print queue.")
 	return nil
+}
+
+// flagFloat returns the float value following the first matching flag, or def.
+func flagFloat(args []string, def float64, names ...string) float64 {
+	if v, ok := flagValue(args, names...); ok {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return def
 }
 
 // flagValue returns the value following the first matching flag name in args.
