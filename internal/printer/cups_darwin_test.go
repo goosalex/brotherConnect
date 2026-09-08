@@ -10,14 +10,15 @@ import (
 
 // fakeRunner records invocations and returns canned output per command.
 type fakeRunner struct {
-	calls    []recordedCall
-	lpstatV  []byte // `lpstat -v` output
-	lpstatP  []byte // `lpstat -l -p` output
-	ippOut   []byte // `ipptool` output
-	ippErr   error  // if set, ipptool fails and Status falls back to lpstat
-	lpStdin  []byte // captured stdin of the last `lp` call
-	lpErr    error
-	statErr  error
+	calls      []recordedCall
+	lpstatV    []byte // `lpstat -v` output
+	lpstatP    []byte // `lpstat -l -p` output
+	ippfindOut []byte // `ippfind` output (endpoint URIs)
+	ippOut     []byte // `ipptool` output
+	ippErr     error  // if set, ipptool fails
+	lpStdin    []byte // captured stdin of the last `lp` call
+	lpErr      error
+	statErr    error
 }
 
 type recordedCall struct {
@@ -28,6 +29,8 @@ type recordedCall struct {
 func (f *fakeRunner) run(_ context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 	f.calls = append(f.calls, recordedCall{name: name, args: args})
 	switch {
+	case name == "ippfind":
+		return f.ippfindOut, nil
 	case name == "ipptool":
 		return f.ippOut, f.ippErr
 	case name == "lpstat" && contains(args, "-v"):
@@ -51,7 +54,7 @@ func contains(ss []string, s string) bool {
 }
 
 func newCUPS(r commandRunner) *cupsDriver {
-	return &cupsDriver{runner: r, known: map[string]Printer{}}
+	return &cupsDriver{runner: r, known: map[string]Printer{}, endpoints: map[string]string{}}
 }
 
 func TestCUPSPrintResolvesQueueAndSendsRaw(t *testing.T) {
@@ -115,6 +118,43 @@ func TestCUPSStatusUsesLiveIPP(t *testing.T) {
 	if st != StatusOutOfMedia {
 		t.Fatalf("status = %q, want out_of_media (from live IPP)", st)
 	}
+}
+
+// TestCUPSStatusFromDirectEndpoint verifies that Status resolves the live
+// ipp-usb device endpoint by matching the queue's uuid and reads the real fault
+// (cover-open) from it -- the exact case the CUPS queue proxy misses at idle.
+func TestCUPSStatusFromDirectEndpoint(t *testing.T) {
+	fr := &fakeRunner{
+		lpstatV:    []byte(lpstatVFixture), // QL queue URI carries uuid ...94ddf8ac746c
+		ippfindOut: []byte("ipp://localhost:56863/ipp/print\n"),
+		ippOut: []byte("printer-make-and-model (textWithoutLanguage) = Brother QL-820NWB\n" +
+			"printer-uuid (uri) = urn:uuid:e3248000-80ce-11db-8000-94ddf8ac746c\n" +
+			"printer-state (enum) = stopped\n" +
+			"printer-state-reasons (keyword) = cover-open"),
+	}
+	d := newCUPS(fr)
+	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
+
+	st, err := d.Status(context.Background(), "000D6G173970")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st != StatusCoverOpen {
+		t.Fatalf("status = %q, want cover_open (from direct device endpoint)", st)
+	}
+	// The endpoint must be cached for reuse.
+	if got := fr; !usedIPPFind(got) {
+		t.Fatal("expected ippfind to have been used to resolve the endpoint")
+	}
+}
+
+func usedIPPFind(f *fakeRunner) bool {
+	for _, c := range f.calls {
+		if c.name == "ippfind" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCUPSStatusFallsBackToLpstat(t *testing.T) {

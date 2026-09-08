@@ -63,6 +63,42 @@ func labelFromURI(uri string) string {
 	return strings.TrimSpace(host)
 }
 
+// uuidFromURI extracts the uuid query parameter from a CUPS device URI such as
+// "ippusb://Brother%20QL-820NWB._ipp._tcp.local./?uuid=e3248000-...-94ddf8ac746c".
+// Returns the bare uuid (no "urn:uuid:" prefix), lowercased.
+func uuidFromURI(uri string) string {
+	i := strings.Index(uri, "uuid=")
+	if i < 0 {
+		return ""
+	}
+	v := uri[i+len("uuid="):]
+	if j := strings.IndexAny(v, "&"); j >= 0 {
+		v = v[:j]
+	}
+	return normalizeUUID(v)
+}
+
+// normalizeUUID strips any "urn:uuid:" prefix and lowercases, so a device URI's
+// uuid and an IPP printer-uuid attribute compare equal.
+func normalizeUUID(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	s = strings.TrimPrefix(s, "urn:uuid:")
+	return s
+}
+
+// parseIPPFind parses `ippfind` output (one IPP endpoint URI per line) into a
+// slice of endpoints.
+func parseIPPFind(out []byte) []string {
+	var eps []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ipp://") || strings.HasPrefix(line, "ipps://") {
+			eps = append(eps, line)
+		}
+	}
+	return eps
+}
+
 // matchQueue finds the CUPS queue serving the given printer. It matches the
 // printer's model against each queue's decoded label (case-insensitive), which
 // is the most reliable signal for driverless USB printers that expose no serial
@@ -151,6 +187,12 @@ func ippAttrValue(out []byte, attr string) (string, bool) {
 		return "", false
 	}
 	return strings.Join(vals, ","), true
+}
+
+// firstAttr returns the value of an IPP attribute, or "" if absent.
+func firstAttr(out []byte, attr string) string {
+	v, _ := ippAttrValue(out, attr)
+	return v
 }
 
 // parseIPPState maps a device's live IPP attributes (printer-state and

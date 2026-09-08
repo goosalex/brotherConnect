@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
+	"time"
 )
 
 // commandRunner runs an external command with optional stdin and returns its
@@ -44,8 +46,9 @@ func (execRunner) run(ctx context.Context, name string, args []string, stdin []b
 type cupsDriver struct {
 	runner commandRunner
 
-	mu    sync.RWMutex
-	known map[string]Printer // printer ID -> full descriptor
+	mu        sync.RWMutex
+	known     map[string]Printer // printer ID -> full descriptor
+	endpoints map[string]string  // printer ID -> cached live IPP device endpoint
 }
 
 var (
@@ -56,7 +59,11 @@ var (
 
 // NewCUPSDriver returns a CUPS-backed Driver for macOS.
 func NewCUPSDriver() Driver {
-	return &cupsDriver{runner: execRunner{}, known: map[string]Printer{}}
+	return &cupsDriver{
+		runner:    execRunner{},
+		known:     map[string]Printer{},
+		endpoints: map[string]string{},
+	}
 }
 
 // NewSystemDriver returns the platform's real print driver. On macOS this is the
@@ -84,17 +91,24 @@ func (d *cupsDriver) lookup(id string) Printer {
 	return Printer{ID: id, Model: id, SerialNumber: id}
 }
 
-// resolveQueue maps a printer to its CUPS queue name via `lpstat -v`.
-func (d *cupsDriver) resolveQueue(ctx context.Context, p Printer) (string, error) {
+// resolveQueue maps a printer to its CUPS queue (name + device URI) via
+// `lpstat -v`.
+func (d *cupsDriver) resolveQueue(ctx context.Context, p Printer) (cupsQueue, error) {
 	out, err := d.runner.run(ctx, "lpstat", []string{"-v"}, nil)
 	if err != nil {
-		return "", fmt.Errorf("list cups queues: %w", err)
+		return cupsQueue{}, fmt.Errorf("list cups queues: %w", err)
 	}
-	name, ok := matchQueue(parseLpstatV(out), p)
+	queues := parseLpstatV(out)
+	name, ok := matchQueue(queues, p)
 	if !ok {
-		return "", fmt.Errorf("no CUPS queue matches printer %q (model %q)", p.ID, p.Model)
+		return cupsQueue{}, fmt.Errorf("no CUPS queue matches printer %q (model %q)", p.ID, p.Model)
 	}
-	return name, nil
+	for _, q := range queues {
+		if q.Name == name {
+			return q, nil
+		}
+	}
+	return cupsQueue{Name: name}, nil
 }
 
 // Print sends the raster payload to the printer via `lp -d <queue> -o raw`.
@@ -109,53 +123,120 @@ func (d *cupsDriver) Print(ctx context.Context, id string, raster []byte) error 
 	}
 	// -o raw bypasses CUPS filters so the server-generated Brother raster
 	// reaches the device untransformed. -T titles the job for diagnostics.
-	args := []string{"-d", queue, "-o", "raw", "-T", "brotherConnect"}
+	args := []string{"-d", queue.Name, "-o", "raw", "-T", "brotherConnect"}
 	if _, err := d.runner.run(ctx, "lp", args, raster); err != nil {
-		return fmt.Errorf("submit print job to %q: %w", queue, err)
+		return fmt.Errorf("submit print job to %q: %w", queue.Name, err)
 	}
 	return nil
 }
 
-// Status reports the printer's live status. It queries the device's IPP
-// attributes (get-printer-attributes) for the real printer-state and
-// printer-state-reasons (Requirements.md §9a) and falls back to CUPS queue state
-// only if the IPP query is unavailable.
+// Status reports the printer's live status from the device's IPP attributes
+// (printer-state + printer-state-reasons), so real faults such as cover-open and
+// out-of-media are caught (Requirements.md §9a). It queries the direct ipp-usb
+// device endpoint, which reflects live device state even at idle; the CUPS queue
+// proxy caches idle state and misses faults until a job is attempted.
 func (d *cupsDriver) Status(ctx context.Context, id string) (Status, error) {
 	p := d.lookup(id)
-	queue, err := d.resolveQueue(ctx, p)
-	if err != nil {
-		return StatusOffline, err
-	}
-	if out, err := d.ippAttributes(ctx, queue); err == nil {
+	if out, ok := d.deviceAttributes(ctx, p); ok {
 		return parseIPPState(out), nil
 	}
-	// Fallback: coarse CUPS queue state.
-	out, err := d.runner.run(ctx, "lpstat", []string{"-l", "-p", queue}, nil)
+	// Last resort when IPP is unavailable: coarse CUPS queue state.
+	queue, err := d.resolveQueue(ctx, p)
 	if err != nil {
 		return StatusOffline, nil
 	}
-	return parsePrinterState(out), nil
+	if out, err := d.runner.run(ctx, "lpstat", []string{"-l", "-p", queue.Name}, nil); err == nil {
+		return parsePrinterState(out), nil
+	}
+	return StatusOffline, nil
 }
 
 // LoadedMedia returns the media size (mm) currently loaded in the printer, read
 // from the device's IPP media-ready/media-default attribute. Implements
 // MediaReporter (Requirements.md §8).
 func (d *cupsDriver) LoadedMedia(ctx context.Context, id string) (width, height float64, ok bool) {
-	p := d.lookup(id)
-	queue, err := d.resolveQueue(ctx, p)
-	if err != nil {
-		return 0, 0, false
-	}
-	out, err := d.ippAttributes(ctx, queue)
-	if err != nil {
+	out, found := d.deviceAttributes(ctx, d.lookup(id))
+	if !found {
 		return 0, 0, false
 	}
 	return parseIPPMedia(out)
 }
 
-// ippAttributes fetches the device's IPP printer attributes via ipptool against
-// the local CUPS proxy, which forwards to the physical printer.
-func (d *cupsDriver) ippAttributes(ctx context.Context, queue string) ([]byte, error) {
-	uri := "ipp://localhost/printers/" + queue
+// deviceAttributes fetches the printer's live IPP attributes. It prefers the
+// direct ipp-usb device endpoint (resolved by matching the CUPS queue's uuid),
+// and falls back to the CUPS queue proxy. Returns false if neither is reachable.
+func (d *cupsDriver) deviceAttributes(ctx context.Context, p Printer) ([]byte, bool) {
+	queue, err := d.resolveQueue(ctx, p)
+	if err != nil {
+		return nil, false
+	}
+	if ep := d.deviceEndpoint(ctx, p, queue); ep != "" {
+		if out, err := d.getPrinterAttributes(ctx, ep); err == nil {
+			return out, true
+		}
+		// Stale cached endpoint (e.g. ipp-usb restarted); clear and retry once.
+		d.forgetEndpoint(p.ID)
+		if ep := d.deviceEndpoint(ctx, p, queue); ep != "" {
+			if out, err := d.getPrinterAttributes(ctx, ep); err == nil {
+				return out, true
+			}
+		}
+	}
+	// Fallback: the CUPS queue proxy (may report cached idle state).
+	proxy := "ipp://localhost/printers/" + queue.Name
+	if out, err := d.getPrinterAttributes(ctx, proxy); err == nil {
+		return out, true
+	}
+	return nil, false
+}
+
+// deviceEndpoint returns the direct ipp-usb device endpoint for p, resolving it
+// by matching the CUPS queue's uuid (or model) against the endpoints that
+// `ippfind` advertises. Results are cached per printer.
+func (d *cupsDriver) deviceEndpoint(ctx context.Context, p Printer, queue cupsQueue) string {
+	d.mu.RLock()
+	cached := d.endpoints[p.ID]
+	d.mu.RUnlock()
+	if cached != "" {
+		return cached
+	}
+
+	// Bound ippfind so a browse can never hang the caller.
+	findCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := d.runner.run(findCtx, "ippfind", nil, nil)
+	if err != nil {
+		return ""
+	}
+
+	wantUUID := uuidFromURI(queue.URI)
+	wantModel := normalizeModel(p.Model)
+	for _, ep := range parseIPPFind(out) {
+		attrs, err := d.getPrinterAttributes(ctx, ep)
+		if err != nil {
+			continue
+		}
+		gotUUID := normalizeUUID(firstAttr(attrs, "printer-uuid"))
+		gotModel := normalizeModel(firstAttr(attrs, "printer-make-and-model"))
+		if (wantUUID != "" && gotUUID == wantUUID) ||
+			(wantModel != "" && strings.Contains(gotModel, wantModel)) {
+			d.mu.Lock()
+			d.endpoints[p.ID] = ep
+			d.mu.Unlock()
+			return ep
+		}
+	}
+	return ""
+}
+
+func (d *cupsDriver) forgetEndpoint(id string) {
+	d.mu.Lock()
+	delete(d.endpoints, id)
+	d.mu.Unlock()
+}
+
+// getPrinterAttributes runs ipptool's standard get-printer-attributes against an
+// IPP URI and returns its output.
+func (d *cupsDriver) getPrinterAttributes(ctx context.Context, uri string) ([]byte, error) {
 	return d.runner.run(ctx, "ipptool", []string{"-tv", uri, "get-printer-attributes.test"}, nil)
 }
