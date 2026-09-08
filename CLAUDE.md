@@ -28,6 +28,9 @@ and in what order:
 - **`PhaseMapping.md`** — living tracking doc that maps each requirement to its
   phase, records external dependencies, and carries status checkboxes. Update it
   as work proceeds.
+- **`docs/server-contract.md`** — how trencitos produces print payloads (PDF via
+  a `LabelRenderer`, not raster) and what the bridge consumes. Read before
+  touching the print path or the payload format.
 
 Key architectural constraints from those docs: the bridge is a local Go process
 that makes an **outbound** `wss://` connection to trencitos (no inbound ports);

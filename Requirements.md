@@ -234,6 +234,8 @@ delivery path:
 Recommended default: the server emits a rendered document (PDF or PNG) plus the
 label dimensions; the bridge sizes and submits it. This keeps one server output
 across platforms and lets each platform's print system handle device specifics.
+This matches trencitos, whose `LabelRenderer` already emits PDF; the outstanding
+item is a Brother-QL single-label stock. See `docs/server-contract.md`.
 
 If the job's label dimensions do not match the printer's loaded media, the
 bridge must fail the job with a clear, human-readable reason rather than print
