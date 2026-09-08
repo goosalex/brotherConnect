@@ -21,6 +21,7 @@ type Bridge struct {
 	cfg        config.Config
 	client     *transport.Client
 	discoverer printer.Discoverer
+	driver     printer.Driver
 	queue      *queue.Queue
 	log        *slog.Logger
 }
@@ -34,6 +35,7 @@ func New(cfg config.Config, dialer transport.Dialer, disc printer.Discoverer, dr
 	b := &Bridge{
 		cfg:        cfg,
 		discoverer: disc,
+		driver:     driver,
 		log:        log,
 	}
 
@@ -78,6 +80,11 @@ func (b *Bridge) watchPrinters(ctx context.Context, events <-chan printer.Event)
 				return
 			}
 			b.logDiscovery(ev)
+			// Register with the driver so it can resolve this printer (by model,
+			// for CUPS) when a job for it arrives.
+			if reg, ok := b.driver.(printer.Registrar); ok && ev.Kind != printer.EventDisconnected {
+				reg.Register(ev.Printer)
+			}
 			b.sendPrinterUpdate(ev.Printer, ev.Kind != printer.EventDisconnected)
 		}
 	}

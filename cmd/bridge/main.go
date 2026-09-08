@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,6 +39,16 @@ func main() {
 	if slices.Contains(os.Args[1:], "-list-printers") || slices.Contains(os.Args[1:], "--list-printers") {
 		if err := listPrinters(); err != nil {
 			log.Error("printer discovery failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// One-shot print mode: send a raster file to the first discovered printer,
+	// for validating the real driver against hardware. Usage: -print <file>.
+	if path, ok := flagValue(os.Args[1:], "-print", "--print"); ok {
+		if err := printFile(path); err != nil {
+			log.Error("print failed", "err", err)
 			os.Exit(1)
 		}
 		return
@@ -65,9 +76,13 @@ func main() {
 		disc = printer.NewStubBackend(nil)
 	}
 
-	// TODO(phase1): the raster Driver (actual printing to the device) is not yet
-	// implemented; the stub Driver records jobs. Discovery above is real.
-	driver := printer.NewStubBackend(nil)
+	// Real print driver (CUPS on macOS) sends server-generated raster to the
+	// device; fall back to the stub recorder where unsupported.
+	driver, err := printer.NewSystemDriver()
+	if err != nil {
+		log.Warn("system print driver unavailable; using stub driver", "err", err)
+		driver = printer.NewStubBackend(nil)
+	}
 
 	// TODO(phase1): replace fake dialer with a wss:// dialer that authenticates
 	// using cfg.DevToken and negotiates the protocol version.
@@ -97,10 +112,74 @@ func listPrinters() error {
 		fmt.Println("No supported Brother QL printers found on USB.")
 		return nil
 	}
+	// Enrich the presence status from discovery with the live device status the
+	// driver can read (Requirements.md §9a). Falls back to the discovery status
+	// if no driver is available on this platform.
+	driver, derr := printer.NewSystemDriver()
+
 	fmt.Printf("Discovered %d printer(s):\n", len(printers))
 	for _, p := range printers {
+		status := p.Status
+		if derr == nil {
+			if reg, ok := driver.(printer.Registrar); ok {
+				reg.Register(p)
+			}
+			if live, err := driver.Status(ctx, p.ID); err == nil {
+				status = live
+			}
+		}
 		fmt.Printf("  - %s\n      id=%s serial=%s connection=%s status=%s\n",
-			p.Model, p.ID, p.SerialNumber, p.Connection, p.Status)
+			p.Model, p.ID, p.SerialNumber, p.Connection, status)
 	}
 	return nil
+}
+
+// printFile sends the raster bytes in path to the first discovered printer via
+// the real system driver. It is a manual validation harness for the print path
+// against physical hardware (feed it a server-generated Brother raster file).
+func printFile(path string) error {
+	raster, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read raster file: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	printers, err := printer.ScanUSB(ctx)
+	if err != nil {
+		return err
+	}
+	if len(printers) == 0 {
+		return fmt.Errorf("no printer discovered; is it powered on and connected?")
+	}
+	p := printers[0]
+
+	driver, err := printer.NewSystemDriver()
+	if err != nil {
+		return err
+	}
+	if reg, ok := driver.(printer.Registrar); ok {
+		reg.Register(p)
+	}
+	fmt.Printf("Printing %d bytes to %s (%s)...\n", len(raster), p.Model, p.ID)
+	if err := driver.Print(ctx, p.ID, raster); err != nil {
+		return err
+	}
+	fmt.Println("Submitted to the print queue.")
+	return nil
+}
+
+// flagValue returns the value following the first matching flag name in args.
+func flagValue(args []string, names ...string) (string, bool) {
+	for i, a := range args {
+		for _, n := range names {
+			if a == n && i+1 < len(args) {
+				return args[i+1], true
+			}
+			if v, ok := strings.CutPrefix(a, n+"="); ok {
+				return v, true
+			}
+		}
+	}
+	return "", false
 }

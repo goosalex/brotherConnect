@@ -90,3 +90,10 @@ type Driver interface {
 	// Status queries the live status of a printer.
 	Status(ctx context.Context, id string) (Status, error)
 }
+
+// Registrar is an optional Driver capability: drivers that resolve printers by
+// attributes other than ID (e.g. the CUPS driver matches by model) implement it
+// so the bridge can supply full printer descriptors from discovery.
+type Registrar interface {
+	Register(Printer)
+}

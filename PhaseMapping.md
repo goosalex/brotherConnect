@@ -29,17 +29,32 @@ Goal: prove the local print path end-to-end with minimal auth.
 
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
-| Go bridge on one target platform | §2 | — | ☐ |
-| WSS connection with dev token | §5 | Phase 0 contract, trencitos WSS endpoint | ☐ |
-| Basic reconnect | §5, §16 | WSS connection | ☐ |
-| USB discovery (Brother QL) | §6 | libusb/gousb or pure-Go USB lib | ☐ |
-| Print one test label (server raster) | §8 | Brother raster format, printer in hand | ☐ |
-| Job state reporting | §9 | WSS contract | ☐ |
-| Printer appears in trencitos UI | §7, §13 | trencitos printer registry + UI | ☐ |
-| Minimal duplicate-print protection | §10 | — | ☐ |
-| HTTPS/WSS only, input validation | §11 | — | ☐ |
+| Go bridge on one target platform (macOS) | §2 | — | ☑ |
+| WSS connection with dev token | §5 | Phase 0 contract, trencitos WSS endpoint | ◐ |
+| Basic reconnect | §5, §16 | WSS connection | ☑ |
+| USB discovery (Brother QL) | §6 | system_profiler (macOS, no cgo) | ☑ |
+| Print one test label (server raster) | §8 | Brother raster format, printer in hand | ◐ |
+| Job state reporting | §9 | WSS contract | ☑ |
+| Printer appears in trencitos UI | §7, §13 | trencitos printer registry + UI | ⊘ |
+| Minimal duplicate-print protection | §10 | — | ☑ |
+| HTTPS/WSS only, input validation | §11 | — | ◐ |
 
 **Acceptance:** Requirements §19 criteria 1–8.
+
+**Notes on partials:**
+- WSS connection (◐): client, handshake, heartbeat, and backoff reconnect are
+  built and tested against an in-memory fake; the real `wss://` dialer is not
+  wired yet (blocked on the Phase 0 contract).
+- Print path (◐): the CUPS driver resolves the queue and sends server raster via
+  `lp -o raw`; queue-match and flow are unit-tested with a fake runner, but a
+  real print has not been validated on hardware. Open question: the QL-820NWB is
+  set up as a driverless **ippusb/AirPrint** queue, so raw Brother raster may
+  need a `usb://`/`socket://` raw queue or URF/PWG raster instead. Validate with
+  `bridge -print <server-raster-file>` when the printer is on.
+- Printer status (§9a): live status comes from CUPS printer-state-reasons, which
+  for this ippusb queue only reflect the device when CUPS contacts it; queue
+  state alone reads "ready" even when the device is off.
+- trencitos UI (⊘): server-side, out of scope for this repo.
 
 ## Phase 2 — Core product
 
