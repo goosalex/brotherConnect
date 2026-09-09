@@ -1,0 +1,7 @@
+        printer-is-accepting-jobs (boolean) = true
+        printer-state (enum) = idle
+        printer-state-change-date-time (dateTime) = 2026-09-08T10:04:24Z
+        printer-state-change-time (integer) = 1788861864
+        printer-state-message (textWithoutLanguage) = 
+        printer-state-reasons (keyword) = none
+        media-default (keyword) = custom_12x12mm_12x12mm

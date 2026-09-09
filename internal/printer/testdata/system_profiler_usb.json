@@ -1,0 +1,147 @@
+{
+  "SPUSBDataType" : [
+    {
+      "_name" : "USB31Bus",
+      "host_controller" : "AppleT8122USBXHCI"
+    },
+    {
+      "_name" : "USB31Bus",
+      "host_controller" : "AppleT8122USBXHCI"
+    },
+    {
+      "_items" : [
+        {
+          "_items" : [
+            {
+              "_items" : [
+                {
+                  "_name" : "ThinkPad TBT 3 Dock",
+                  "bcd_device" : "31.01",
+                  "bus_power" : "900",
+                  "bus_power_used" : "288",
+                  "device_speed" : "super_speed",
+                  "extra_current_used" : "0",
+                  "location_id" : "0x02412000 / 8",
+                  "manufacturer" : "Realtek",
+                  "product_id" : "0x3082",
+                  "serial_num" : "1015885BA",
+                  "vendor_id" : "0x17ef  (Lenovo)"
+                }
+              ],
+              "_name" : "USB3.1 Hub             ",
+              "bcd_device" : "51.33",
+              "bus_power" : "900",
+              "bus_power_used" : "0",
+              "device_speed" : "super_speed_plus",
+              "extra_current_used" : "0",
+              "location_id" : "0x02410000 / 5",
+              "manufacturer" : "VIA Labs, Inc.         ",
+              "product_id" : "0x307f",
+              "serial_num" : "00000000000000000000001",
+              "vendor_id" : "0x17ef  (Lenovo)"
+            }
+          ],
+          "_name" : "USB3.1 Hub             ",
+          "bcd_device" : "51.53",
+          "bus_power" : "900",
+          "bus_power_used" : "0",
+          "device_speed" : "super_speed_plus",
+          "extra_current_used" : "0",
+          "location_id" : "0x02400000 / 2",
+          "manufacturer" : "VIA Labs, Inc.         ",
+          "product_id" : "0x307f",
+          "serial_num" : "00000000000000000000001",
+          "vendor_id" : "0x17ef  (Lenovo)"
+        },
+        {
+          "_items" : [
+            {
+              "_name" : "QL-820NWB",
+              "1284DeviceID" : "MFG:Brother;CMD:PT-CBP,URF;MDL:QL-820NWB;CLS:PRINTER;CID:Brother LabelPrinter TypeE1;URF:V1.5,W8,CP1,IS1,MT1-5,OB10,PQ4-5,RS300,FN3-11-60-63;",
+              "bcd_device" : "1.00",
+              "bus_power" : "500",
+              "bus_power_used" : "2",
+              "device_speed" : "full_speed",
+              "extra_current_used" : "0",
+              "location_id" : "0x02220000 / 10",
+              "manufacturer" : "Brother",
+              "product_id" : "0x209d",
+              "serial_num" : "000D6G173970",
+              "vendor_id" : "0x04f9  (Brother International Corporation)"
+            },
+            {
+              "_items" : [
+                {
+                  "_items" : [
+                    {
+                      "_name" : "ThinkPad Thunderbolt 3 Dock USB Audio",
+                      "bcd_device" : "0.91",
+                      "bus_power" : "500",
+                      "bus_power_used" : "100",
+                      "device_speed" : "full_speed",
+                      "extra_current_used" : "0",
+                      "location_id" : "0x02211200 / 7",
+                      "manufacturer" : "Lenovo",
+                      "product_id" : "0x3083",
+                      "serial_num" : "000000000000",
+                      "vendor_id" : "0x17ef  (Lenovo)"
+                    }
+                  ],
+                  "_name" : "USB2.0 HUB",
+                  "bcd_device" : "60.60",
+                  "bus_power" : "500",
+                  "bus_power_used" : "100",
+                  "device_speed" : "high_speed",
+                  "extra_current_used" : "0",
+                  "location_id" : "0x02211000 / 6",
+                  "manufacturer" : "Lenovo",
+                  "product_id" : "0x3081",
+                  "vendor_id" : "0x17ef  (Lenovo)"
+                }
+              ],
+              "_name" : "USB2.0 Hub             ",
+              "bcd_device" : "51.33",
+              "bus_power" : "500",
+              "bus_power_used" : "0",
+              "device_speed" : "high_speed",
+              "extra_current_used" : "0",
+              "location_id" : "0x02210000 / 4",
+              "manufacturer" : "VIA Labs, Inc.         ",
+              "product_id" : "0x3080",
+              "serial_num" : "00000000000000000000001",
+              "vendor_id" : "0x17ef  (Lenovo)"
+            },
+            {
+              "_name" : "40AN",
+              "bcd_device" : "10.30",
+              "bus_power" : "500",
+              "device_speed" : "high_speed",
+              "extra_current_used" : "0",
+              "location_id" : "0x02250000 / 3",
+              "manufacturer" : "VIA Labs, Inc.         ",
+              "product_id" : "0x8887",
+              "serial_num" : "40ANZJZ0LBG9",
+              "vendor_id" : "0x2109  (VIA Labs, Inc.)"
+            }
+          ],
+          "_name" : "USB2.0 Hub             ",
+          "bcd_device" : "51.53",
+          "bus_power" : "500",
+          "bus_power_used" : "0",
+          "device_speed" : "high_speed",
+          "extra_current_used" : "0",
+          "location_id" : "0x02200000 / 1",
+          "manufacturer" : "VIA Labs, Inc.         ",
+          "product_id" : "0x3080",
+          "serial_num" : "00000000000000000000001",
+          "vendor_id" : "0x17ef  (Lenovo)"
+        }
+      ],
+      "_name" : "USB31Bus",
+      "host_controller" : "AppleUSBXHCITR",
+      "pci_device" : "0x15f0 ",
+      "pci_revision" : "0x0006 ",
+      "pci_vendor" : "0x8086 "
+    }
+  ]
+}

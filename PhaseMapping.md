@@ -17,7 +17,7 @@ Goal: agree the trencitos-facing contract before bridge coding begins.
 | API endpoint contract (all operations) | §14 | trencitos team | ☐ |
 | WSS message contract + version negotiation | §5, §14 | trencitos team | ☐ |
 | Print-job schema | §8 | trencitos team | ☐ |
-| Server-rendered Brother raster format | §8 | Brother raster spec | ☐ |
+| Payload format decision (PDF/PNG vs raster) | §8 | field finding: native raster not deliverable on macOS | ☐ |
 | Max job payload size + error model | §10 | trencitos team | ☐ |
 | In-scope PoC printer model(s) fixed | §2 | hardware availability | ☐ |
 
@@ -29,17 +29,39 @@ Goal: prove the local print path end-to-end with minimal auth.
 
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
-| Go bridge on one target platform | §2 | — | ☐ |
-| WSS connection with dev token | §5 | Phase 0 contract, trencitos WSS endpoint | ☐ |
-| Basic reconnect | §5, §16 | WSS connection | ☐ |
-| USB discovery (Brother QL) | §6 | libusb/gousb or pure-Go USB lib | ☐ |
-| Print one test label (server raster) | §8 | Brother raster format, printer in hand | ☐ |
-| Job state reporting | §9 | WSS contract | ☐ |
-| Printer appears in trencitos UI | §7, §13 | trencitos printer registry + UI | ☐ |
-| Minimal duplicate-print protection | §10 | — | ☐ |
-| HTTPS/WSS only, input validation | §11 | — | ☐ |
+| Go bridge on one target platform (macOS) | §2 | — | ☑ |
+| WSS connection with dev token | §5 | Phase 0 contract, trencitos WSS endpoint | ◐ |
+| Basic reconnect | §5, §16 | WSS connection | ☑ |
+| USB discovery (Brother QL) | §6 | system_profiler (macOS, no cgo) | ☑ |
+| Print one test label (server raster) | §8 | Brother raster format, printer in hand | ◐ |
+| Job state reporting | §9 | WSS contract | ☑ |
+| Printer appears in trencitos UI | §7, §13 | trencitos printer registry + UI | ⊘ |
+| Minimal duplicate-print protection | §10 | — | ☑ |
+| HTTPS/WSS only, input validation | §11 | — | ◐ |
 
 **Acceptance:** Requirements §19 criteria 1–8.
+
+**Notes on partials:**
+- WSS connection (◐): client, handshake, heartbeat, and backoff reconnect are
+  built and tested against an in-memory fake; the real `wss://` dialer is not
+  wired yet (blocked on the Phase 0 contract).
+- Print path (◐): **validated on real hardware** — a physical label prints from
+  `bridge -print`. Resolved the open question the hard way: native Brother raster
+  is **not deliverable** to this macOS driverless (AirPrint/ippusb) printer. We
+  confirmed, in order: `lp -o raw` jams the device (`other-error`/`spool-area-full`);
+  raw CUPS queues are "no longer supported on macOS"; direct libusb is denied
+  (`Access denied`); the printer's command mode had to be set to Raster and still
+  jammed. What works: submitting a document (PNG/PDF) through the CUPS filter
+  chain (no `-o raw`) with a custom page size — CUPS converts to URF and prints.
+  The driver was reworked accordingly (drop `-o raw`, size the page from the job
+  dimensions). A "tiny print" bug traced to the queue's default 12x12mm media,
+  fixed by supplying `PageSize=Custom.<W>x<H>mm`. Consequence: payload format is a
+  Phase 0 decision — see Requirements §8 (recommend server emits PDF/PNG + dims).
+- Printer status (§9a): read live from the device via IPP get-printer-attributes
+  (printer-state + printer-state-reasons), not CUPS queue state. Verified against
+  the real QL-820NWB, which also reports its loaded media (12x12mm) used for the
+  §8 size check. Falls back to lpstat only if ipptool is unavailable.
+- trencitos UI (⊘): server-side, out of scope for this repo.
 
 ## Phase 2 — Core product
 
