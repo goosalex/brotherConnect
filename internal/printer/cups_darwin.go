@@ -173,7 +173,7 @@ func (d *cupsDriver) LoadedMedia(ctx context.Context, id string) (width, height 
 	if !found {
 		return 0, 0, false
 	}
-	return parseIPPMedia(out)
+	return parseLoadedMedia(out)
 }
 
 // deviceAttributes fetches the printer's live IPP attributes. It prefers the

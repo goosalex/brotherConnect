@@ -231,26 +231,67 @@ func parseIPPState(out []byte) Status {
 // keyword, e.g. "custom_12x12mm_12x12mm" or "om_something_50x70mm".
 var pwgMediaSize = regexp.MustCompile(`(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)mm`)
 
-// parseIPPMedia extracts the loaded media size (mm) from a device's IPP
-// media-ready/media-default attribute. Returns width, height and ok. This lets
-// the bridge validate a job's requested label size against the loaded media
-// (Requirements.md §8).
-func parseIPPMedia(out []byte) (width, height float64, ok bool) {
-	media, found := ippAttrValue(out, "media-ready")
+// mmDimension matches a single millimetre dimension, e.g. "62mm".
+var mmDimension = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*mm`)
+
+// parseLoadedMedia returns the media size (mm) the device reports as physically
+// loaded (Requirements.md §8). Height is 0 for continuous tape (width only).
+//
+// Source priority matters: it reads the *sensed* tape from
+// printer-input-tray.medianame first, then media-ready. It deliberately ignores
+// media-default — that is a configured default that can disagree with the roll
+// actually loaded (observed: media-default reported 29x90 while a 62mm
+// continuous roll was loaded). When nothing sensed is available it returns
+// ok=false rather than a misleading default.
+func parseLoadedMedia(out []byte) (width, height float64, ok bool) {
+	if w, h, ok := inputTrayMedia(out); ok {
+		return w, h, ok
+	}
+	if media, found := ippAttrValue(out, "media-ready"); found && strings.TrimSpace(media) != "" {
+		if m := pwgMediaSize.FindStringSubmatch(media); m != nil {
+			w, err1 := strconv.ParseFloat(m[1], 64)
+			h, err2 := strconv.ParseFloat(m[2], 64)
+			if err1 == nil && err2 == nil {
+				return w, h, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// inputTrayMedia extracts the loaded tape size from the CUPS/PWG
+// printer-input-tray octetString, e.g.
+//
+//	printer-input-tray = ...;medianame=62mm / 2.4";mediatype=stationery;...
+//
+// On a Brother QL this reflects the tape the printer has sensed — authoritative,
+// unlike media-default. For continuous tape medianame carries only the width, so
+// height is returned as 0. ipptool backslash-escapes spaces in the octetString;
+// they are stripped before parsing.
+func inputTrayMedia(out []byte) (width, height float64, ok bool) {
+	raw, found := ippAttrValue(out, "printer-input-tray")
 	if !found {
-		media, found = ippAttrValue(out, "media-default")
-	}
-	if !found {
 		return 0, 0, false
 	}
-	m := pwgMediaSize.FindStringSubmatch(media)
-	if m == nil {
+	s := strings.ReplaceAll(raw, `\`, "")
+	i := strings.Index(s, "medianame=")
+	if i < 0 {
 		return 0, 0, false
 	}
-	w, err1 := strconv.ParseFloat(m[1], 64)
-	h, err2 := strconv.ParseFloat(m[2], 64)
-	if err1 != nil || err2 != nil {
+	name := s[i+len("medianame="):]
+	if j := strings.IndexByte(name, ';'); j >= 0 {
+		name = name[:j]
+	}
+	dims := mmDimension.FindAllStringSubmatch(name, -1)
+	if len(dims) == 0 {
 		return 0, 0, false
 	}
-	return w, h, true
+	w, err := strconv.ParseFloat(dims[0][1], 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	if len(dims) > 1 {
+		height, _ = strconv.ParseFloat(dims[1][1], 64)
+	}
+	return w, height, true
 }
