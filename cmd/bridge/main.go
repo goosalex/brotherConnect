@@ -69,20 +69,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Real USB discovery where a backend exists (macOS in Phase 1); otherwise
-	// fall back to the stub so the bridge still runs.
-	disc, err := printer.NewUSBDiscoverer(printer.USBOptions{})
-	if err != nil {
-		log.Warn("USB discovery unavailable; using stub backend", "err", err)
-		disc = printer.NewStubBackend(nil)
-	}
+	var disc printer.Discoverer
+	var driver printer.Driver
+	if cfg.Virtual {
+		// Debug mode: a virtual BROTHER_62 that captures jobs to GIF, no hardware.
+		vb := printer.NewVirtualBackend(cfg.VirtualOut, os.Stdout)
+		log.Warn("virtual mode: presenting virtual BROTHER_62; captured labels -> "+cfg.VirtualOut, "printer_id", printer.VirtualPrinterID)
+		disc, driver = vb, vb
+	} else {
+		// Real USB discovery where a backend exists (macOS in Phase 1); otherwise
+		// fall back to the stub so the bridge still runs.
+		d, err := printer.NewUSBDiscoverer(printer.USBOptions{})
+		if err != nil {
+			log.Warn("USB discovery unavailable; using stub backend", "err", err)
+			d = printer.NewStubBackend(nil)
+		}
+		disc = d
 
-	// Real print driver (CUPS on macOS) sends server-generated raster to the
-	// device; fall back to the stub recorder where unsupported.
-	driver, err := printer.NewSystemDriver()
-	if err != nil {
-		log.Warn("system print driver unavailable; using stub driver", "err", err)
-		driver = printer.NewStubBackend(nil)
+		// Real print driver (CUPS on macOS) sends the document to the device;
+		// fall back to the stub recorder where unsupported.
+		dr, err := printer.NewSystemDriver()
+		if err != nil {
+			log.Warn("system print driver unavailable; using stub driver", "err", err)
+			dr = printer.NewStubBackend(nil)
+		}
+		driver = dr
 	}
 
 	// Real wss:// dialer authenticating with the device token. -offline swaps in
@@ -168,6 +179,16 @@ func printFile(path string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// -virtual: render to a GIF via the virtual printer instead of real hardware.
+	if slices.Contains(os.Args[1:], "-virtual") || slices.Contains(os.Args[1:], "--virtual") {
+		outDir, ok := flagValue(os.Args[1:], "-virtual-out", "--virtual-out")
+		if !ok {
+			outDir = "labels"
+		}
+		vb := printer.NewVirtualBackend(outDir, os.Stdout)
+		return vb.Print(ctx, printer.VirtualPrinterID, doc, opts)
+	}
 
 	printers, err := printer.ScanUSB(ctx)
 	if err != nil {
