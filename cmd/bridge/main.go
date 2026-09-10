@@ -85,9 +85,16 @@ func main() {
 		driver = printer.NewStubBackend(nil)
 	}
 
-	// TODO(phase1): replace fake dialer with a wss:// dialer that authenticates
-	// using cfg.DevToken and negotiates the protocol version.
-	dialer := transport.NewFakeDialer(transport.NewFakeConn())
+	// Real wss:// dialer authenticating with the device token. -offline swaps in
+	// an in-memory transport so discovery/printing can be exercised without a
+	// live trencitos server.
+	var dialer transport.Dialer
+	if cfg.Offline {
+		log.Warn("offline mode: using in-memory transport (no server connection)")
+		dialer = transport.NewFakeDialer(transport.NewFakeConn())
+	} else {
+		dialer = transport.NewWSDialer(cfg.ServerURL, cfg.DevToken)
+	}
 
 	b := bridge.New(cfg, dialer, disc, driver, log)
 

@@ -25,6 +25,9 @@ type Config struct {
 	BridgeVersion string
 	// HeartbeatInterval controls liveness pings; 0 disables.
 	HeartbeatInterval time.Duration
+	// Offline uses an in-memory transport instead of dialing the server, for
+	// exercising discovery/printing without a live trencitos endpoint.
+	Offline bool
 }
 
 // Default dev endpoint from Requirements.md §1.
@@ -39,10 +42,12 @@ func Load(args []string, version string) (Config, error) {
 	fs.StringVar(&c.DevToken, "token", env("BRIDGE_DEV_TOKEN", ""), "Phase 1 development device token")
 	fs.StringVar(&c.InstallationID, "installation-id", env("BRIDGE_INSTALLATION_ID", ""), "installation ID (auto-generated if empty)")
 	hb := fs.Duration("heartbeat", envDuration("BRIDGE_HEARTBEAT", 30*time.Second), "heartbeat interval (0 disables)")
+	offline := fs.Bool("offline", false, "use an in-memory transport instead of dialing the server")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
 	c.HeartbeatInterval = *hb
+	c.Offline = *offline
 	c.BridgeVersion = version
 
 	if c.InstallationID == "" {
@@ -56,6 +61,9 @@ func Load(args []string, version string) (Config, error) {
 }
 
 func (c Config) validate() error {
+	if c.Offline {
+		return nil // no server connection, so no URL/token needed
+	}
 	if c.ServerURL == "" {
 		return errors.New("server URL is required")
 	}
