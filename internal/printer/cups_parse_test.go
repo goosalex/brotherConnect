@@ -102,15 +102,42 @@ func TestParseIPPStateReasonsBeatState(t *testing.T) {
 	}
 }
 
-func TestParseIPPMedia(t *testing.T) {
-	w, h, ok := parseIPPMedia([]byte(ipptoolFixture))
-	if !ok || w != 12 || h != 12 {
-		t.Fatalf("parseIPPMedia = %v x %v (ok=%v), want 12 x 12", w, h, ok)
+// The sensed tape (printer-input-tray.medianame) must win over a stale
+// media-default. Regression for the bug where the bridge reported 29x90 (a
+// configured default) while a 62mm continuous roll was physically loaded.
+func TestParseLoadedMediaPrefersSensedInputTray(t *testing.T) {
+	out := `        printer-input-tray (octetString) = type=sheetFeedManual;level=-2;status=0;name=Media;index=1;medianame=62mm\ /\ 2.4";mediatype=stationery;mediacolor=unknown;
+        media-default (keyword) = om_brother-label-29x90mm_29x90mm
+        media-ready (nameWithoutLanguage) = `
+	w, h, ok := parseLoadedMedia([]byte(out))
+	if !ok || w != 62 || h != 0 {
+		t.Fatalf("parseLoadedMedia = %v x %v (ok=%v), want 62 x 0 (continuous)", w, h, ok)
 	}
-	// media-ready takes precedence over media-default.
-	both := "media-ready (keyword) = om_label_50x70mm\nmedia-default (keyword) = custom_12x12mm_12x12mm"
-	w, h, ok = parseIPPMedia([]byte(both))
+}
+
+func TestParseLoadedMediaFallsBackToMediaReady(t *testing.T) {
+	// No input tray, but media-ready reports a die-cut size.
+	out := "media-ready (keyword) = om_label_50x70mm\nmedia-default (keyword) = custom_12x12mm_12x12mm"
+	w, h, ok := parseLoadedMedia([]byte(out))
 	if !ok || w != 50 || h != 70 {
-		t.Fatalf("parseIPPMedia(both) = %v x %v (ok=%v), want 50 x 70", w, h, ok)
+		t.Fatalf("parseLoadedMedia = %v x %v (ok=%v), want 50 x 70", w, h, ok)
+	}
+}
+
+func TestParseLoadedMediaIgnoresDefaultWhenNothingSensed(t *testing.T) {
+	// Only media-default present (a config, not sensed) -> report unknown rather
+	// than a possibly-wrong value.
+	out := "media-default (keyword) = om_brother-label-29x90mm_29x90mm\nmedia-ready (nameWithoutLanguage) = "
+	if _, _, ok := parseLoadedMedia([]byte(out)); ok {
+		t.Fatal("expected unknown (ok=false) when only media-default is available")
+	}
+}
+
+func TestInputTrayMediaDieCut(t *testing.T) {
+	// A die-cut medianame carries both dimensions.
+	out := `printer-input-tray (octetString) = name=Media;medianame=29mm\ x\ 90mm;mediatype=labels;`
+	w, h, ok := inputTrayMedia([]byte(out))
+	if !ok || w != 29 || h != 90 {
+		t.Fatalf("inputTrayMedia = %v x %v (ok=%v), want 29 x 90", w, h, ok)
 	}
 }

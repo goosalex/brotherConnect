@@ -129,12 +129,14 @@ func (b *Bridge) logDiscovery(kind printer.EventKind, p printer.Printer) {
 
 func (b *Bridge) sendPrinterUpdate(p printer.Printer, available bool) {
 	upd := protocol.PrinterUpdate{
-		PrinterID:    p.ID,
-		Model:        p.Model,
-		SerialNumber: p.SerialNumber,
-		Connection:   string(p.Connection),
-		Status:       string(p.Status),
-		Available:    available && p.Available(),
+		PrinterID:      p.ID,
+		Model:          p.Model,
+		SerialNumber:   p.SerialNumber,
+		Connection:     string(p.Connection),
+		Status:         string(p.Status),
+		Available:      available && p.Available(),
+		LoadedWidthMM:  p.LoadedWidthMM,
+		LoadedHeightMM: p.LoadedHeightMM,
 	}
 	env, err := protocol.Encode(protocol.TypePrinterUpdate, upd)
 	if err != nil {

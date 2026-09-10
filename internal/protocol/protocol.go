@@ -67,7 +67,9 @@ type Heartbeat struct {
 }
 
 // PrinterUpdate reports the bridge's current view of a printer, including its
-// availability/status (Requirements.md §9a).
+// availability/status (Requirements.md §9a) and the media the printer has
+// sensed as loaded (Requirements.md §8), so the server can pre-select the label
+// size and warn on a mismatch.
 type PrinterUpdate struct {
 	PrinterID    string `json:"printer_id"`
 	Model        string `json:"model"`
@@ -75,6 +77,11 @@ type PrinterUpdate struct {
 	Connection   string `json:"connection"` // "usb" | "network"
 	Status       string `json:"status"`     // e.g. "ready", "out_of_media", "cover_open", "offline"
 	Available    bool   `json:"available"`
+	// LoadedWidthMM / LoadedHeightMM are the sensed loaded media in millimetres,
+	// where the device reports it. Omitted (0) when unknown; a 0 height means
+	// continuous tape (width only).
+	LoadedWidthMM  float64 `json:"loaded_width_mm,omitempty"`
+	LoadedHeightMM float64 `json:"loaded_height_mm,omitempty"`
 }
 
 // JobDeliver carries a job from the cloud to the bridge.

@@ -205,15 +205,18 @@ func TestCUPSStatusFallsBackToLpstat(t *testing.T) {
 }
 
 func TestCUPSLoadedMedia(t *testing.T) {
+	// Sensed 62mm continuous tape via printer-input-tray, with a conflicting
+	// (stale) media-default that must be ignored.
 	fr := &fakeRunner{
 		lpstatV: []byte(lpstatVFixture),
-		ippOut:  []byte("        media-default (keyword) = custom_12x12mm_12x12mm"),
+		ippOut: []byte("        printer-input-tray (octetString) = name=Media;medianame=62mm\\ /\\ 2.4\";mediatype=stationery;\n" +
+			"        media-default (keyword) = om_brother-label-29x90mm_29x90mm"),
 	}
 	d := newCUPS(fr)
 	d.Register(Printer{ID: "000D6G173970", Model: "Brother QL-820NWB"})
 
 	w, h, ok := d.LoadedMedia(context.Background(), "000D6G173970")
-	if !ok || w != 12 || h != 12 {
-		t.Fatalf("LoadedMedia = %v x %v (ok=%v), want 12 x 12", w, h, ok)
+	if !ok || w != 62 || h != 0 {
+		t.Fatalf("LoadedMedia = %v x %v (ok=%v), want 62 x 0 (sensed continuous, not 29x90 default)", w, h, ok)
 	}
 }
