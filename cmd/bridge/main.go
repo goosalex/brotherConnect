@@ -51,6 +51,24 @@ func main() {
 		return
 	}
 
+	// `bridge enroll`: run the device-authorization flow and store the token in
+	// the OS credential store (Phase 2, Requirements.md §5). `bridge sign-out`
+	// clears it.
+	if len(os.Args) > 1 && os.Args[1] == "enroll" {
+		if err := runEnroll(os.Args[2:], log); err != nil {
+			log.Error("enrollment failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "sign-out" {
+		if err := runSignOut(log); err != nil {
+			log.Error("sign-out failed", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// One-shot discovery mode: list connected printers and exit. Handled before
 	// config so it needs no device token.
 	if slices.Contains(os.Args[1:], "-list-printers") || slices.Contains(os.Args[1:], "--list-printers") {
@@ -282,6 +300,9 @@ func printStatus() error {
 		conn = "● connected"
 	}
 	fmt.Printf("%s  server=%s  v%s\n", conn, s.Server, s.Version)
+	if s.Tenant != "" {
+		fmt.Printf("tenant %s\n", s.Tenant)
+	}
 	fmt.Printf("installation %s\n", s.InstallationID)
 	fmt.Printf("printers: %d   recent jobs: %d\n", len(s.Printers), len(s.RecentJobs))
 	for _, p := range s.Printers {

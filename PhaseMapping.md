@@ -69,10 +69,10 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
 
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
-| Device authorization flow (RFC 8628) | §5 | trencitos device-auth endpoints | ☐ |
-| Secure token storage (credential store) | §5, §11 | go-keyring (Keychain/CredMgr/Secret Service), file fallback | ☐ |
-| Local web UI (status + config) | §5, §16 | stdlib net/http + embed; see docs/ui-design.md | ☐ |
-| CLI: status / enroll / sign-out / server | §5 | local API | ☐ |
+| Device authorization flow (RFC 8628) | §5 | trencitos device-auth endpoints | ◐ |
+| Secure token storage (credential store) | §5, §11 | go-keyring (Keychain/CredMgr/Secret Service), file fallback | ☑ |
+| Local web UI (status + config) | §5, §16 | stdlib net/http + embed; see docs/ui-design.md | ◐ |
+| CLI: status / enroll / sign-out / server | §5 | local API | ◐ |
 | Self-install autostart (bridge install/uninstall) | §5 | launchd / systemd user / Task Scheduler | ☐ |
 | Multi-tenancy + tenant-scoped authz | §12 | trencitos tenant model | ☐ |
 | Persistent cloud job queue + acks | §10 | trencitos queue | ☐ |
@@ -85,6 +85,23 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
 | Full reconnect + backoff + retry | §5, §16 | — | ☐ |
 
 **Acceptance:** Requirements §19 criteria 9–15.
+
+**Notes on partials:**
+- Enrollment + credential store: the RFC 8628 device-authorization client
+  (`internal/enroll`) and the OS credential store with a 0600 file fallback
+  (`internal/credstore`, `zalando/go-keyring`) are built and unit-tested, wired
+  into config token loading and `bridge enroll` / `bridge sign-out`. Device
+  authorization is ◐ (not ☑) because the trencitos device-auth endpoints do not
+  exist yet — the client is built to RFC 8628 with the endpoint paths
+  (`/oauth/device_authorization`, `/oauth/token`) and any tenant-binding fields
+  on the token response as a Phase 0 contract item to confirm. Credential-store
+  storage is ☑: keyring primary, file fallback (relies on 0600 perms, not
+  encryption at rest — encrypting the fallback is tracked with §11).
+- Web UI (◐): status page exists and now shows the tenant; the `/setup` enroll
+  page (device flow / paste token in the browser, docs/ui-design.md §6) is not
+  built — enrollment is CLI-only so far.
+- CLI (◐): `status`, `enroll`, `sign-out` implemented; `server` switch not yet
+  (server is chosen via `-server` at enroll time and stored with the token).
 
 ## Phase 3 — Production hardening
 
@@ -124,7 +141,7 @@ Cross-cutting blockers, tracked once here (see Requirements §18).
 | Brother QL raster command reference | Spec | Phase 0/1 | ☐ |
 | libusb / gousb (or pure-Go USB) | Library | Phase 1 | ☐ |
 | mDNS/Bonjour library | Library | Phase 2 | ☐ |
-| OS credential stores (3 platforms) | Library | Phase 2 | ☐ |
+| OS credential stores (3 platforms) | Library | Phase 2 | ☑ (zalando/go-keyring + file fallback) |
 | Apple Developer ID + notarization | Procurement | Phase 3 | ☐ |
 | Windows Authenticode certificate | Procurement | Phase 3 | ☐ |
 | Auto-update hosting | Infrastructure | Phase 3 | ☐ |
