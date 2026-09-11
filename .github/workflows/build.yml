@@ -1,4 +1,5 @@
-# Builds release artifacts for the bridge after every merge to master.
+# Builds release artifacts for the bridge after every merge to master, and runs
+# the test + cross-compile checks on pull requests (without publishing artifacts).
 #
 # The bridge is a single cgo-free Go binary that serves its own local web UI
 # (docs/ui-design.md), so all "desktop" targets cross-compile from one Linux
@@ -13,6 +14,8 @@ name: build
 on:
   push:
     branches: [master] # a merged PR is a push to master
+  pull_request:
+    branches: [master] # run checks (test + cross-compile) on PRs
   workflow_dispatch: {} # allow manual builds
 
 permissions:
@@ -87,6 +90,9 @@ jobs:
             fi )
 
       - name: Upload artifact
+        # On PRs the matrix build is a compile check only; publish artifacts
+        # just for master pushes and manual dispatch.
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: bridge-${{ matrix.goos }}-${{ matrix.goarch }}
