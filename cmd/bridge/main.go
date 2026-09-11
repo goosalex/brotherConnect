@@ -13,7 +13,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -41,6 +44,15 @@ func main() {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	// `bridge help` / `-h` / `--help`: print the command + option overview.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "help", "-h", "--help":
+			usage(os.Stdout)
+			return
+		}
+	}
 
 	// `bridge status`: query the running daemon's local UI API and print.
 	if len(os.Args) > 1 && os.Args[1] == "status" {
@@ -90,8 +102,13 @@ func main() {
 	}
 
 	cfg, err := config.Load(os.Args[1:], version)
+	if errors.Is(err, flag.ErrHelp) { // -h/--help mixed with other flags
+		usage(os.Stdout)
+		return
+	}
 	if err != nil {
 		log.Error("configuration error", "err", err)
+		fmt.Fprintln(os.Stderr, "run 'bridge -h' for usage")
 		os.Exit(2)
 	}
 	log.Info("starting bridge",
@@ -158,6 +175,35 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("bridge stopped cleanly")
+}
+
+// usage prints the command overview and the daemon option flags. It is the
+// bridge's -h/--help/help output, covering the subcommands and one-shot modes
+// that are dispatched before flag parsing (and so are invisible to the flag
+// package's own usage).
+func usage(w io.Writer) {
+	fmt.Fprint(w, `bridge — local print bridge connecting Brother label printers to trencitos
+
+Usage:
+  bridge [options]                  run the bridge daemon (connect over WSS and serve prints)
+  bridge enroll [-server URL]       authorize this bridge in a browser (device flow) and store its token
+  bridge sign-out                   remove stored credentials for this bridge
+  bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
+  bridge -list-printers             detect connected USB Brother printers, print them, then exit
+  bridge -print FILE [-w W -h H]    send one document (label W×H mm) to the first printer, then exit
+  bridge -h | --help | help         show this help
+
+Options (for the daemon and 'enroll'):
+`)
+	config.FlagUsage(w)
+	fmt.Fprint(w, `
+Environment variables (flags override):
+  BRIDGE_SERVER_URL  BRIDGE_DEV_TOKEN  BRIDGE_INSTALLATION_ID  BRIDGE_HEARTBEAT  BRIDGE_UI_ADDR
+
+After 'bridge enroll', the daemon loads its token from the OS credential store,
+so plain 'bridge' needs no -token. Add -virtual to any mode to use a fake
+printer that captures labels to GIF, or -offline to run without a server.
+`)
 }
 
 // listPrinters runs a single USB discovery scan and prints the connected

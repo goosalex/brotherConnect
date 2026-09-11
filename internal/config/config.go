@@ -9,6 +9,7 @@ package config
 import (
 	"errors"
 	"flag"
+	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -49,27 +50,41 @@ type Config struct {
 // Default dev endpoint from Requirements.md §1.
 const defaultServerURL = "wss://box.dev.trencitos.dev:8443/bridge"
 
+// registerFlags binds the daemon's option flags to c on fs. It is shared by
+// Load (which parses them) and FlagUsage (which prints them), so the option help
+// can never drift from what Load actually accepts.
+func registerFlags(fs *flag.FlagSet, c *Config) {
+	fs.StringVar(&c.ServerURL, "server", env("BRIDGE_SERVER_URL", defaultServerURL), "trencitos WSS endpoint")
+	fs.StringVar(&c.DevToken, "token", env("BRIDGE_DEV_TOKEN", ""), "device token (normally supplied by 'bridge enroll'; overrides stored credentials)")
+	fs.StringVar(&c.InstallationID, "installation-id", env("BRIDGE_INSTALLATION_ID", ""), "installation ID (auto-generated if empty)")
+	fs.DurationVar(&c.HeartbeatInterval, "heartbeat", envDuration("BRIDGE_HEARTBEAT", 30*time.Second), "heartbeat interval (0 disables)")
+	fs.BoolVar(&c.Offline, "offline", false, "use an in-memory transport instead of dialing the server")
+	fs.BoolVar(&c.Virtual, "virtual", false, "debug: present a virtual BROTHER_62 printer that captures jobs to GIF")
+	fs.StringVar(&c.VirtualOut, "virtual-out", "labels", "directory the virtual printer writes captured labels to")
+	fs.Bool("debug", false, "verbose (debug-level) logging")
+	fs.StringVar(&c.UIAddr, "ui-addr", env("BRIDGE_UI_ADDR", "127.0.0.1:17600"), "local status UI address (empty disables)")
+}
+
+// FlagUsage writes the daemon option flags and their defaults to w. The bridge
+// CLI prefixes this with a command overview to form the full help output.
+func FlagUsage(w io.Writer) {
+	fs := flag.NewFlagSet("bridge", flag.ContinueOnError)
+	fs.SetOutput(w)
+	registerFlags(fs, &Config{})
+	fs.PrintDefaults()
+}
+
 // Load parses configuration from the given args and the environment. Flags take
-// precedence over environment variables.
+// precedence over environment variables. A -h/--help request returns
+// flag.ErrHelp so the caller can print the combined command/option usage.
 func Load(args []string, version string) (Config, error) {
 	fs := flag.NewFlagSet("bridge", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // the CLI prints its own combined usage on error/help
 	var c Config
-	fs.StringVar(&c.ServerURL, "server", env("BRIDGE_SERVER_URL", defaultServerURL), "trencitos WSS endpoint")
-	fs.StringVar(&c.DevToken, "token", env("BRIDGE_DEV_TOKEN", ""), "Phase 1 development device token")
-	fs.StringVar(&c.InstallationID, "installation-id", env("BRIDGE_INSTALLATION_ID", ""), "installation ID (auto-generated if empty)")
-	hb := fs.Duration("heartbeat", envDuration("BRIDGE_HEARTBEAT", 30*time.Second), "heartbeat interval (0 disables)")
-	offline := fs.Bool("offline", false, "use an in-memory transport instead of dialing the server")
-	virtual := fs.Bool("virtual", false, "debug: present a virtual BROTHER_62 printer that captures jobs to GIF")
-	virtualOut := fs.String("virtual-out", "labels", "directory the virtual printer writes captured labels to")
-	_ = fs.Bool("debug", false, "verbose (debug-level) logging")
-	fs.StringVar(&c.UIAddr, "ui-addr", env("BRIDGE_UI_ADDR", "127.0.0.1:17600"), "local status UI address (empty disables)")
+	registerFlags(fs, &c)
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
-	c.HeartbeatInterval = *hb
-	c.Offline = *offline
-	c.Virtual = *virtual
-	c.VirtualOut = *virtualOut
 	c.BridgeVersion = version
 
 	// Was -server given explicitly? If not, stored credentials may supply it.
