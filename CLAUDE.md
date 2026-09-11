@@ -53,6 +53,28 @@ gofmt -w .                  # format all files
 go mod tidy                 # sync go.mod/go.sum with imports
 ```
 
+## Running the bridge (`cmd/bridge`)
+
+```sh
+bridge -token <dev-token>              # connect to the server (wss://) and serve prints
+bridge -offline                        # in-memory transport, no server (discovery/print dev)
+bridge -list-printers                  # one-shot: discovered USB printers + live status/media
+bridge -print <file> [-w 62 -h 45]     # one-shot: send a document to the real printer
+```
+
+**Debug mode — virtual printer.** `-virtual` presents a fake `BROTHER_62` (62mm
+continuous) instead of hardware; every print job is rendered to a GIF and a
+notification is printed to stdout. No printer required.
+
+```sh
+bridge -virtual -token <t>                       # connect to server AS the virtual printer
+bridge -virtual -print label.pdf -virtual-out dir # render a payload to dir/label-*.gif locally
+```
+
+The renderer (`internal/printer/render.go`) decodes PNG/JPEG/GIF, native Brother
+raster (`g`/`Z` command stream, compressed or not), and PDF (via `sips` on
+macOS); unrecognised payloads are saved raw.
+
 ## Notes
 
 - Go 1.26 is required (see `go.mod`).

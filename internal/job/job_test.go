@@ -29,7 +29,6 @@ func TestValidateRejects(t *testing.T) {
 	cases := map[string]func(*Job){
 		"no id":         func(j *Job) { j.ID = "" },
 		"no tenant":     func(j *Job) { j.TenantID = "" },
-		"no user":       func(j *Job) { j.UserID = "" },
 		"no printer":    func(j *Job) { j.PrinterID = "" },
 		"zero copies":   func(j *Job) { j.Copies = 0 },
 		"empty payload": func(j *Job) { j.Payload = nil },

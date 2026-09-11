@@ -28,6 +28,11 @@ type Config struct {
 	// Offline uses an in-memory transport instead of dialing the server, for
 	// exercising discovery/printing without a live trencitos endpoint.
 	Offline bool
+	// Virtual replaces hardware discovery/printing with a virtual BROTHER_62
+	// printer that captures print jobs to GIF files (debug mode).
+	Virtual bool
+	// VirtualOut is the directory the virtual printer writes captured labels to.
+	VirtualOut string
 }
 
 // Default dev endpoint from Requirements.md §1.
@@ -43,11 +48,16 @@ func Load(args []string, version string) (Config, error) {
 	fs.StringVar(&c.InstallationID, "installation-id", env("BRIDGE_INSTALLATION_ID", ""), "installation ID (auto-generated if empty)")
 	hb := fs.Duration("heartbeat", envDuration("BRIDGE_HEARTBEAT", 30*time.Second), "heartbeat interval (0 disables)")
 	offline := fs.Bool("offline", false, "use an in-memory transport instead of dialing the server")
+	virtual := fs.Bool("virtual", false, "debug: present a virtual BROTHER_62 printer that captures jobs to GIF")
+	virtualOut := fs.String("virtual-out", "labels", "directory the virtual printer writes captured labels to")
+	_ = fs.Bool("debug", false, "verbose (debug-level) logging")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
 	c.HeartbeatInterval = *hb
 	c.Offline = *offline
+	c.Virtual = *virtual
+	c.VirtualOut = *virtualOut
 	c.BridgeVersion = version
 
 	if c.InstallationID == "" {
