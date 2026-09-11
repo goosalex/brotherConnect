@@ -12,8 +12,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -26,6 +28,7 @@ import (
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/printer"
 	"brotherConnect/internal/transport"
+	"brotherConnect/internal/ui"
 )
 
 // version is the bridge software version reported to the cloud. Overridable at
@@ -38,6 +41,15 @@ func main() {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	// `bridge status`: query the running daemon's local UI API and print.
+	if len(os.Args) > 1 && os.Args[1] == "status" {
+		if err := printStatus(); err != nil {
+			log.Error("status", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// One-shot discovery mode: list connected printers and exit. Handled before
 	// config so it needs no device token.
@@ -112,6 +124,16 @@ func main() {
 	}
 
 	b := bridge.New(cfg, dialer, disc, driver, log)
+
+	// Local status UI on 127.0.0.1 (docs/ui-design.md). Empty -ui-addr disables.
+	if cfg.UIAddr != "" {
+		srv := ui.NewServer(cfg.UIAddr, b.Snapshot, log)
+		go func() {
+			if err := srv.Start(ctx); err != nil {
+				log.Warn("status UI stopped", "err", err)
+			}
+		}()
+	}
 
 	if err := b.Run(ctx); err != nil && err != context.Canceled {
 		log.Error("bridge stopped", "err", err)
@@ -227,6 +249,45 @@ func flagFloat(args []string, def float64, names ...string) float64 {
 		}
 	}
 	return def
+}
+
+// printStatus queries the running daemon's local UI API and prints a summary.
+func printStatus() error {
+	addr, ok := flagValue(os.Args[1:], "-ui-addr", "--ui-addr")
+	if !ok {
+		if v := os.Getenv("BRIDGE_UI_ADDR"); v != "" {
+			addr = v
+		} else {
+			addr = ui.DefaultAddr
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/status", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("is the bridge running? %w", err)
+	}
+	defer resp.Body.Close()
+
+	var s bridge.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return err
+	}
+	conn := "○ offline"
+	if s.Connected {
+		conn = "● connected"
+	}
+	fmt.Printf("%s  server=%s  v%s\n", conn, s.Server, s.Version)
+	fmt.Printf("installation %s\n", s.InstallationID)
+	fmt.Printf("printers: %d   recent jobs: %d\n", len(s.Printers), len(s.RecentJobs))
+	for _, p := range s.Printers {
+		fmt.Printf("  - %s (%s) %s\n", p.Model, p.ID, p.Status)
+	}
+	return nil
 }
 
 // flagValue returns the value following the first matching flag name in args.

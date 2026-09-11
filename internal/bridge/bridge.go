@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/job"
@@ -26,6 +28,89 @@ type Bridge struct {
 	driver     printer.Driver
 	queue      *queue.Queue
 	log        *slog.Logger
+
+	mu        sync.Mutex
+	connected bool
+	printers  map[string]printer.Printer // by ID
+	jobs      []JobRecord                // most-recent-last, bounded
+}
+
+// maxJobRecords bounds the recent-jobs ring shown in the UI.
+const maxJobRecords = 20
+
+// JobRecord is a compact record of a job's latest state for the status UI.
+type JobRecord struct {
+	JobID     string    `json:"job_id"`
+	PrinterID string    `json:"printer_id"`
+	State     job.State `json:"state"`
+	Reason    string    `json:"reason,omitempty"`
+	At        time.Time `json:"at"`
+}
+
+// Snapshot is a point-in-time view of the bridge for the status UI/CLI.
+type Snapshot struct {
+	Connected      bool              `json:"connected"`
+	Server         string            `json:"server"`
+	InstallationID string            `json:"installation_id"`
+	Version        string            `json:"version"`
+	Printers       []printer.Printer `json:"printers"`
+	RecentJobs     []JobRecord       `json:"recent_jobs"`
+}
+
+// Snapshot returns the current state for presentation. Safe for concurrent use.
+func (b *Bridge) Snapshot() Snapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	printers := make([]printer.Printer, 0, len(b.printers))
+	for _, p := range b.printers {
+		printers = append(printers, p)
+	}
+	jobs := make([]JobRecord, len(b.jobs))
+	copy(jobs, b.jobs)
+	return Snapshot{
+		Connected:      b.connected,
+		Server:         b.cfg.ServerURL,
+		InstallationID: b.cfg.InstallationID,
+		Version:        b.cfg.BridgeVersion,
+		Printers:       printers,
+		RecentJobs:     jobs,
+	}
+}
+
+func (b *Bridge) setConnected(v bool) {
+	b.mu.Lock()
+	b.connected = v
+	b.mu.Unlock()
+}
+
+// recordPrinter updates (or removes) a printer in the snapshot state.
+func (b *Bridge) recordPrinter(p printer.Printer, disconnected bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if disconnected {
+		delete(b.printers, p.ID)
+		return
+	}
+	b.printers[p.ID] = p
+}
+
+// recordJob appends a job record, keeping the most recent maxJobRecords, and
+// collapses consecutive updates for the same job ID to its latest state.
+func (b *Bridge) recordJob(r JobRecord) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if r.PrinterID == "" && len(b.jobs) > 0 && b.jobs[len(b.jobs)-1].JobID == r.JobID {
+		r.PrinterID = b.jobs[len(b.jobs)-1].PrinterID
+	}
+	// Replace the trailing record for the same job if present, else append.
+	if n := len(b.jobs); n > 0 && b.jobs[n-1].JobID == r.JobID {
+		b.jobs[n-1] = r
+	} else {
+		b.jobs = append(b.jobs, r)
+	}
+	if len(b.jobs) > maxJobRecords {
+		b.jobs = b.jobs[len(b.jobs)-maxJobRecords:]
+	}
 }
 
 // New constructs a Bridge from its collaborators. The client is created here so
@@ -39,6 +124,7 @@ func New(cfg config.Config, dialer transport.Dialer, disc printer.Discoverer, dr
 		discoverer: disc,
 		driver:     driver,
 		log:        log,
+		printers:   map[string]printer.Printer{},
 	}
 
 	// Queue reports every job transition; forward them to the cloud.
@@ -52,6 +138,7 @@ func New(cfg config.Config, dialer transport.Dialer, disc printer.Discoverer, dr
 		},
 		HeartbeatInterval: cfg.HeartbeatInterval,
 		Logger:            log,
+		OnStateChange:     b.setConnected,
 	}, b.onMessage)
 
 	return b
@@ -93,6 +180,7 @@ func (b *Bridge) watchPrinters(ctx context.Context, events <-chan printer.Event)
 				}
 				p = b.enrichFromDriver(ctx, p)
 			}
+			b.recordPrinter(p, ev.Kind == printer.EventDisconnected)
 			b.logDiscovery(ev.Kind, p)
 			b.sendPrinterUpdate(p, available)
 		}
@@ -203,6 +291,8 @@ func (b *Bridge) handleJobDeliver(env protocol.Envelope) {
 // onJobTransition reports a job state change to the cloud (Requirements.md §9,
 // §14 job_status). Passed as the queue's StatusSink.
 func (b *Bridge) onJobTransition(jobID string, tr job.Transition, current job.State) {
+	b.recordJob(JobRecord{JobID: jobID, State: current, Reason: tr.Reason, At: tr.At})
+
 	msg := protocol.JobStatus{JobID: jobID, Transition: tr, CurrentState: current}
 	env, err := protocol.Encode(protocol.TypeJobStatus, msg)
 	if err != nil {

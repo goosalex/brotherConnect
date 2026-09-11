@@ -22,6 +22,10 @@ type Config struct {
 	// OutboundBuffer sizes the send queue that absorbs messages produced while
 	// disconnected. 0 uses 128.
 	OutboundBuffer int
+	// OnStateChange, if set, is called with true once a connection is
+	// established (post-handshake) and false when it is lost, so the UI can
+	// reflect live connection state. It must not block.
+	OnStateChange func(connected bool)
 }
 
 // Client owns the outbound WSS connection lifecycle: dial, handshake, heartbeat,
@@ -118,6 +122,8 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	}
 	c.backoff.Reset()
 	c.log.Info("connected", "installation_id", c.cfg.Hello.InstallationID)
+	c.notifyState(true)
+	defer c.notifyState(false)
 
 	// Reader loop feeds inbound messages to the handler; writer loop drains the
 	// outbound queue and emits heartbeats. The first to error tears down the
@@ -132,6 +138,13 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	err = <-errc
 	cancel()
 	return err
+}
+
+// notifyState reports a connection state transition to the configured hook.
+func (c *Client) notifyState(connected bool) {
+	if c.cfg.OnStateChange != nil {
+		c.cfg.OnStateChange(connected)
+	}
 }
 
 // handshake sends Hello and waits for Welcome, checking protocol compatibility.
