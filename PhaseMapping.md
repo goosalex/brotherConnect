@@ -73,7 +73,7 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
 | Secure token storage (credential store) | §5, §11 | go-keyring (Keychain/CredMgr/Secret Service), file fallback | ☑ |
 | Local web UI (status + config) | §5, §16 | stdlib net/http + embed; see docs/ui-design.md | ◐ |
 | CLI: status / enroll / sign-out / server | §5 | local API | ◐ |
-| Self-install autostart (bridge install/uninstall) | §5 | launchd / systemd user / Task Scheduler | ☐ |
+| Self-install autostart (bridge install/uninstall) | §5 | launchd / systemd user / Task Scheduler | ◐ |
 | Multi-tenancy + tenant-scoped authz | §12 | trencitos tenant model | ☐ |
 | Persistent cloud job queue + acks | §10 | trencitos queue | ☐ |
 | Persistent local job queue | §10 | local storage design | ☐ |
@@ -100,8 +100,14 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
 - Web UI (◐): status page exists and now shows the tenant; the `/setup` enroll
   page (device flow / paste token in the browser, docs/ui-design.md §6) is not
   built — enrollment is CLI-only so far.
-- CLI (◐): `status`, `enroll`, `sign-out` implemented; `server` switch not yet
-  (server is chosen via `-server` at enroll time and stored with the token).
+- CLI (◐): `status`, `enroll`, `sign-out`, `list`, `print`, `install`,
+  `uninstall` implemented; `server` switch not yet (server is chosen via
+  `-server` at enroll time and stored with the token).
+- Self-install autostart (◐): `bridge install` / `uninstall` register a per-user
+  login agent. **macOS launchd is implemented** (`internal/autostart`): writes
+  `~/Library/LaunchAgents/dev.trencitos.bridge.plist` and loads it via
+  `launchctl bootstrap`, verified live end-to-end. Linux systemd-user and
+  Windows Scheduled Task backends return `ErrUnsupported` for now.
 
 ## Phase 3 — Production hardening
 

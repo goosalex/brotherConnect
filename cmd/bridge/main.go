@@ -74,6 +74,20 @@ func main() {
 			}
 			return
 
+		case "install": // register autostart at login (macOS launchd)
+			if err := runInstall(log); err != nil {
+				log.Error("install failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "uninstall": // remove the autostart registration
+			if err := runUninstall(log); err != nil {
+				log.Error("uninstall failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
 		case "list": // detect connected USB printers and exit
 			if err := listPrinters(); err != nil {
 				log.Error("printer discovery failed", "err", err)
@@ -181,6 +195,8 @@ Usage:
   bridge [options]                  run the bridge daemon (connect over WSS and serve prints)
   bridge enroll [-server URL]       authorize this bridge in a browser (device flow) and store its token
   bridge sign-out                   remove stored credentials for this bridge
+  bridge install                    start the bridge automatically at login (macOS launchd)
+  bridge uninstall                  remove the autostart registration
   bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
   bridge list                       detect connected USB Brother printers, print them, then exit
   bridge print FILE [-w W -h H]     send one document (label W×H mm) to the first printer, then exit
