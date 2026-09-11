@@ -29,7 +29,7 @@ func systemProfilerScan(ctx context.Context) ([]byte, error) {
 }
 
 // ScanUSB performs a single discovery scan and returns the connected Brother QL
-// printers. Used by the one-shot `-list-printers` path.
+// printers. Used by the one-shot `bridge list` path.
 func ScanUSB(ctx context.Context) ([]Printer, error) {
 	raw, err := systemProfilerScan(ctx)
 	if err != nil {

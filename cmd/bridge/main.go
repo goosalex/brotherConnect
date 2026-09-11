@@ -45,60 +45,53 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	// `bridge help` / `-h` / `--help`: print the command + option overview.
+	// Subcommands are dispatched before config parsing so they need no device
+	// token. Anything not matched here falls through to the daemon.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "help", "-h", "--help":
 			usage(os.Stdout)
 			return
-		}
-	}
 
-	// `bridge status`: query the running daemon's local UI API and print.
-	if len(os.Args) > 1 && os.Args[1] == "status" {
-		if err := printStatus(); err != nil {
-			log.Error("status", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+		case "status": // query the running daemon's local UI API and print
+			if err := printStatus(); err != nil {
+				log.Error("status", "err", err)
+				os.Exit(1)
+			}
+			return
 
-	// `bridge enroll`: run the device-authorization flow and store the token in
-	// the OS credential store (Phase 2, Requirements.md §5). `bridge sign-out`
-	// clears it.
-	if len(os.Args) > 1 && os.Args[1] == "enroll" {
-		if err := runEnroll(os.Args[2:], log); err != nil {
-			log.Error("enrollment failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "sign-out" {
-		if err := runSignOut(log); err != nil {
-			log.Error("sign-out failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+		case "enroll": // device-authorization flow -> store token (Phase 2, §5)
+			if err := runEnroll(os.Args[2:], log); err != nil {
+				log.Error("enrollment failed", "err", err)
+				os.Exit(1)
+			}
+			return
 
-	// One-shot discovery mode: list connected printers and exit. Handled before
-	// config so it needs no device token.
-	if slices.Contains(os.Args[1:], "-list-printers") || slices.Contains(os.Args[1:], "--list-printers") {
-		if err := listPrinters(); err != nil {
-			log.Error("printer discovery failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+		case "sign-out": // clear stored credentials
+			if err := runSignOut(log); err != nil {
+				log.Error("sign-out failed", "err", err)
+				os.Exit(1)
+			}
+			return
 
-	// One-shot print mode: send a raster file to the first discovered printer,
-	// for validating the real driver against hardware. Usage: -print <file>.
-	if path, ok := flagValue(os.Args[1:], "-print", "--print"); ok {
-		if err := printFile(path); err != nil {
-			log.Error("print failed", "err", err)
-			os.Exit(1)
+		case "list": // detect connected USB printers and exit
+			if err := listPrinters(); err != nil {
+				log.Error("printer discovery failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "print": // send one document to the first printer and exit
+			if len(os.Args) < 3 || strings.HasPrefix(os.Args[2], "-") {
+				fmt.Fprintln(os.Stderr, "usage: bridge print FILE [-w W] [-h H] [-virtual]")
+				os.Exit(2)
+			}
+			if err := printFile(os.Args[2]); err != nil {
+				log.Error("print failed", "err", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 
 	cfg, err := config.Load(os.Args[1:], version)
@@ -189,8 +182,8 @@ Usage:
   bridge enroll [-server URL]       authorize this bridge in a browser (device flow) and store its token
   bridge sign-out                   remove stored credentials for this bridge
   bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
-  bridge -list-printers             detect connected USB Brother printers, print them, then exit
-  bridge -print FILE [-w W -h H]    send one document (label W×H mm) to the first printer, then exit
+  bridge list                       detect connected USB Brother printers, print them, then exit
+  bridge print FILE [-w W -h H]     send one document (label W×H mm) to the first printer, then exit
   bridge -h | --help | help         show this help
 
 Options (for the daemon and 'enroll'):
@@ -257,7 +250,7 @@ func listPrinters() error {
 // real system driver. It is a manual validation harness for the print path
 // against physical hardware. The payload should be a platform-printable document
 // (image/PDF/URF on macOS); label size defaults to 62x45mm, override with
-// -w/-h (mm). Usage: -print <file> [-w 62 -h 45].
+// -w/-h (mm). Usage: bridge print <file> [-w 62 -h 45].
 func printFile(path string) error {
 	doc, err := os.ReadFile(path)
 	if err != nil {
