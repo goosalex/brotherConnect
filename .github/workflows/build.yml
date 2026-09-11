@@ -1,0 +1,96 @@
+# Builds release artifacts for the bridge after every merge to master.
+#
+# The bridge is a single cgo-free Go binary that serves its own local web UI
+# (docs/ui-design.md), so all "desktop" targets cross-compile from one Linux
+# runner with CGO_ENABLED=0 — no macOS/Windows runners needed. Each build is
+# stamped with a build number (the workflow run number) plus the commit SHA,
+# injected into main.version via -ldflags.
+#
+# Signing / notarization (macOS Gatekeeper, Windows Authenticode) is a Phase 3
+# concern (PhaseMapping.md) and is intentionally not done here.
+name: build
+
+on:
+  push:
+    branches: [master] # a merged PR is a push to master
+  workflow_dispatch: {} # allow manual builds
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test # only ship artifacts from green code
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64 # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Compute version / build number
+        id: version
+        run: |
+          sha7="${GITHUB_SHA::7}"
+          version="0.1.0-b${{ github.run_number }}.${sha7}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Build number ${{ github.run_number }} -> version $version"
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="bridge_${VERSION}_${GOOS}_${GOARCH}"
+          bin="bridge"
+          [ "$GOOS" = "windows" ] && bin="bridge.exe"
+          mkdir -p "dist/${name}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/${name}/${bin}" ./cmd/bridge
+          echo "${VERSION}  ${GOOS}/${GOARCH}  ${GITHUB_SHA}" > "dist/${name}/BUILD_INFO.txt"
+          ( cd dist
+            if [ "$GOOS" = "windows" ]; then
+              zip -qr "${name}.zip" "${name}"
+            else
+              tar -czf "${name}.tar.gz" "${name}"
+            fi )
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
