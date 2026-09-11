@@ -33,7 +33,11 @@ import (
 var version = "0.1.0-dev"
 
 func main() {
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	level := slog.LevelInfo
+	if slices.Contains(os.Args[1:], "-debug") || slices.Contains(os.Args[1:], "--debug") {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	// One-shot discovery mode: list connected printers and exit. Handled before
 	// config so it needs no device token.

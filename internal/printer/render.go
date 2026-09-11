@@ -6,12 +6,25 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	_ "image/jpeg" // register JPEG decoder
 	_ "image/png"  // register PNG decoder
 	"os"
 	"os/exec"
 	"path/filepath"
 )
+
+// flattenOnWhite composites src over an opaque white background. PDFs (and some
+// PNGs) render with a transparent background; GIF has no alpha, so without this
+// transparent areas become black and swallow black text. Opaque images pass
+// through unchanged.
+func flattenOnWhite(src image.Image) image.Image {
+	b := src.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, b, src, b.Min, draw.Over)
+	return dst
+}
 
 // decodeToImage turns a print payload into an image for the virtual printer's
 // capture (debug mode). It recognises, in order:
@@ -72,7 +85,9 @@ func rasterizePDF(ctx context.Context, pdf []byte) (image.Image, error) {
 	if err := os.WriteFile(in, pdf, 0o600); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "sips", "-s", "format", "png", in, "--out", out)
+	// -Z renders the PDF into a high-resolution raster (crisp vector rendering,
+	// not an upscale of the 72dpi default) so the captured label is legible.
+	cmd := exec.CommandContext(ctx, "sips", "-s", "format", "png", "-Z", "1200", in, "--out", out)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("sips rasterize (is this macOS?): %w", err)
 	}

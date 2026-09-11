@@ -47,7 +47,7 @@ type Dimensions struct {
 type Job struct {
 	ID         string            `json:"id"`
 	TenantID   string            `json:"tenant_id"`
-	UserID     string            `json:"user_id"`
+	UserID     string            `json:"user_id,omitempty"` // optional: not sent by trencitos
 	PrinterID  string            `json:"printer_id"`
 	Dimensions Dimensions        `json:"dimensions"`
 	Copies     int               `json:"copies"`
@@ -72,8 +72,6 @@ func (j Job) Validate() error {
 		return wrap("missing id")
 	case j.TenantID == "":
 		return wrap("missing tenant_id")
-	case j.UserID == "":
-		return wrap("missing user_id")
 	case j.PrinterID == "":
 		return wrap("missing printer_id")
 	case j.Copies < 1:

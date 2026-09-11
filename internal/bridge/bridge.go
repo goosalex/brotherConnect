@@ -6,6 +6,8 @@ package bridge
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/job"
@@ -150,6 +152,7 @@ func (b *Bridge) sendPrinterUpdate(p printer.Printer, available bool) {
 
 // onMessage handles inbound cloud messages routed from the transport read loop.
 func (b *Bridge) onMessage(env protocol.Envelope) {
+	b.log.Debug("received message", "type", env.Type, "bytes", len(env.Payload))
 	switch env.Type {
 	case protocol.TypeJobDeliver:
 		b.handleJobDeliver(env)
@@ -160,12 +163,24 @@ func (b *Bridge) onMessage(env protocol.Envelope) {
 
 // handleJobDeliver acknowledges a delivered job and submits it to the queue.
 func (b *Bridge) handleJobDeliver(env protocol.Envelope) {
+	// Debug aid: dump the raw job_deliver payload so its shape can be compared to
+	// the contract when BRIDGE_DUMP_JOBS names a directory.
+	if dir := os.Getenv("BRIDGE_DUMP_JOBS"); dir != "" {
+		if err := os.WriteFile(filepath.Join(dir, "last_job_deliver.json"), env.Payload, 0o644); err != nil {
+			b.log.Warn("dump job payload", "err", err)
+		}
+	}
+
 	var jd protocol.JobDeliver
 	if err := protocol.Decode(env, &jd); err != nil {
 		b.log.Error("decode job", "err", err)
 		return
 	}
 	j := jd.Job
+	b.log.Debug("decoded job",
+		"id", j.ID, "printer_id", j.PrinterID, "tenant_id", j.TenantID,
+		"width_mm", j.Dimensions.WidthMM, "height_mm", j.Dimensions.HeightMM,
+		"copies", j.Copies, "payload_bytes", len(j.Payload))
 
 	// Acknowledge receipt first so the cloud can mark the job delivered
 	// (Requirements.md §10).
@@ -176,6 +191,7 @@ func (b *Bridge) handleJobDeliver(env protocol.Envelope) {
 	res, err := b.queue.Submit(j)
 	switch res {
 	case queue.Rejected:
+		b.log.Warn("job rejected", "job_id", j.ID, "err", err)
 		b.sendError("invalid_job", err.Error(), j.ID)
 	case queue.Duplicate:
 		b.log.Info("duplicate job ignored", "job_id", j.ID)

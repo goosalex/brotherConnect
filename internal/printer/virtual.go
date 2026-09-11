@@ -142,7 +142,7 @@ func writeGIF(path string, img image.Image) error {
 		return err
 	}
 	defer f.Close()
-	if err := gif.Encode(f, img, nil); err != nil {
+	if err := gif.Encode(f, flattenOnWhite(img), nil); err != nil {
 		return fmt.Errorf("encode gif: %w", err)
 	}
 	return nil

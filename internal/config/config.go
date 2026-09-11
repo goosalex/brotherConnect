@@ -50,6 +50,7 @@ func Load(args []string, version string) (Config, error) {
 	offline := fs.Bool("offline", false, "use an in-memory transport instead of dialing the server")
 	virtual := fs.Bool("virtual", false, "debug: present a virtual BROTHER_62 printer that captures jobs to GIF")
 	virtualOut := fs.String("virtual-out", "labels", "directory the virtual printer writes captured labels to")
+	_ = fs.Bool("debug", false, "verbose (debug-level) logging")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
