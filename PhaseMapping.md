@@ -70,7 +70,10 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
 | Device authorization flow (RFC 8628) | §5 | trencitos device-auth endpoints | ☐ |
-| Secure token storage (credential store) | §5, §11 | Keychain / Cred Manager / Secret Service | ☐ |
+| Secure token storage (credential store) | §5, §11 | go-keyring (Keychain/CredMgr/Secret Service), file fallback | ☐ |
+| Local web UI (status + config) | §5, §16 | stdlib net/http + embed; see docs/ui-design.md | ☐ |
+| CLI: status / enroll / sign-out / server | §5 | local API | ☐ |
+| Self-install autostart (bridge install/uninstall) | §5 | launchd / systemd user / Task Scheduler | ☐ |
 | Multi-tenancy + tenant-scoped authz | §12 | trencitos tenant model | ☐ |
 | Persistent cloud job queue + acks | §10 | trencitos queue | ☐ |
 | Persistent local job queue | §10 | local storage design | ☐ |
@@ -89,8 +92,9 @@ Goal: installable, signed, monitored, multi-model.
 
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
-| Platform installers | §5 | — | ☐ |
-| Signed / verifiable releases | §11 | Apple Developer ID, Windows Authenticode | ☐ |
+| Platform installers | §5 | macOS .app→.pkg/.dmg; Win WiX/NSIS; Linux .deb/.rpm/AppImage | ☐ |
+| Signed / verifiable releases | §11 | Apple Developer ID + notarytool, Windows Authenticode | ☐ |
+| Optional native tray / menu-bar (cgo, build-tagged) | §5 | systray; macOS needs an .app bundle | ☐ |
 | Automatic updates | §5 | update hosting | ☐ |
 | Monitoring + diagnostics | §15, §17 | trencitos metrics | ☐ |
 | Multiple printer models | §2 | per-model raster/protocol | ☐ |
@@ -98,6 +102,15 @@ Goal: installable, signed, monitored, multi-model.
 | Least-privilege OS install | §11 | installers | ☐ |
 
 **Acceptance:** Requirements §19 criteria 16–18.
+
+**Deployment note (see `docs/ui-design.md` §7).** The UI does **not** change the
+deployment model — the local web UI runs from the single binary, and autostart
+is self-installable via `bridge install`. What requires installers is
+**productionization**: code-signing/notarization (so Gatekeeper/SmartScreen
+trust the app) and the *optional* macOS menu-bar tray (which needs an `.app`
+bundle). Both are Phase 3, and both are independent of the UI. A web-UI-only
+build can stay single-binary across all three OSes; adding the native tray is
+what forces `.app`/DMG packaging on macOS.
 
 ## External dependency summary
 

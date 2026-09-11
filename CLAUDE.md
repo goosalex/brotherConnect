@@ -31,6 +31,9 @@ and in what order:
 - **`docs/server-contract.md`** — how trencitos produces print payloads (PDF via
   a `LabelRenderer`, not raster) and what the bridge consumes. Read before
   touching the print path or the payload format.
+- **`docs/ui-design.md`** — minimal cross-OS daemon UI (status + token/server/
+  tenant config): web-UI-first, CLI, optional tray, and why the UI keeps the
+  single-binary deployment model (installers are a Phase-3 signing/tray concern).
 
 Key architectural constraints from those docs: the bridge is a local Go process
 that makes an **outbound** `wss://` connection to trencitos (no inbound ports);
