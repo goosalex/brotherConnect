@@ -33,6 +33,8 @@ type Config struct {
 	Virtual bool
 	// VirtualOut is the directory the virtual printer writes captured labels to.
 	VirtualOut string
+	// UIAddr is the loopback address for the local status UI. Empty disables it.
+	UIAddr string
 }
 
 // Default dev endpoint from Requirements.md §1.
@@ -51,6 +53,7 @@ func Load(args []string, version string) (Config, error) {
 	virtual := fs.Bool("virtual", false, "debug: present a virtual BROTHER_62 printer that captures jobs to GIF")
 	virtualOut := fs.String("virtual-out", "labels", "directory the virtual printer writes captured labels to")
 	_ = fs.Bool("debug", false, "verbose (debug-level) logging")
+	fs.StringVar(&c.UIAddr, "ui-addr", env("BRIDGE_UI_ADDR", "127.0.0.1:17600"), "local status UI address (empty disables)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
