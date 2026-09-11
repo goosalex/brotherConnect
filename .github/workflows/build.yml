@@ -1,6 +1,8 @@
-# Builds release artifacts for the bridge after every merge to master, and on
-# pull requests: runs the test + cross-compile checks, uploads the per-target
-# binaries as run artifacts, and posts a PR comment linking to them.
+# CI/CD for the bridge:
+#   - pull requests: run test + cross-compile checks, upload the per-target
+#     binaries as run artifacts, and post a PR comment linking to them.
+#   - merge to master: cross-compile and publish the binaries as assets on a
+#     tagged GitHub Release (durable, sign-in-free download).
 #
 # The bridge is a single cgo-free Go binary that serves its own local web UI
 # (docs/ui-design.md), so all "desktop" targets cross-compile from one Linux
@@ -98,8 +100,9 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
           if-no-files-found: error
-          # Keep PR artifacts short-lived; retain master builds longer.
-          retention-days: ${{ github.event_name == 'pull_request' && 14 || 90 }}
+          # Short-lived: PR artifacts back the PR comment link; master artifacts
+          # are just the handoff to the release job (the Release is durable).
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 7 }}
 
   # On PRs, post (and keep updating) a sticky comment linking to the artifacts
   # uploaded by the build matrix above, so reviewers can grab the binaries
@@ -146,3 +149,30 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body,
               });
             }
+
+  # On merge to master, gather all matrix binaries and publish them as assets on
+  # a tagged GitHub Release, so they are durable and downloadable without sign-in.
+  release:
+    name: publish release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag + release
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist # each artifact lands in dist/<artifact-name>/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-b${{ github.run_number }}
+          name: Build ${{ github.run_number }} (v0.1.0-b${{ github.run_number }})
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip
