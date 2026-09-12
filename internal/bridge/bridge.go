@@ -51,6 +51,7 @@ type JobRecord struct {
 type Snapshot struct {
 	Connected      bool              `json:"connected"`
 	Server         string            `json:"server"`
+	Tenant         string            `json:"tenant,omitempty"`
 	InstallationID string            `json:"installation_id"`
 	Version        string            `json:"version"`
 	Printers       []printer.Printer `json:"printers"`
@@ -70,6 +71,7 @@ func (b *Bridge) Snapshot() Snapshot {
 	return Snapshot{
 		Connected:      b.connected,
 		Server:         b.cfg.ServerURL,
+		Tenant:         b.cfg.TenantName,
 		InstallationID: b.cfg.InstallationID,
 		Version:        b.cfg.BridgeVersion,
 		Printers:       printers,

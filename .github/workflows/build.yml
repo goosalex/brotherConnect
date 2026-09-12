@@ -1,0 +1,178 @@
+# CI/CD for the bridge:
+#   - pull requests: run test + cross-compile checks, upload the per-target
+#     binaries as run artifacts, and post a PR comment linking to them.
+#   - merge to master: cross-compile and publish the binaries as assets on a
+#     tagged GitHub Release (durable, sign-in-free download).
+#
+# The bridge is a single cgo-free Go binary that serves its own local web UI
+# (docs/ui-design.md), so all "desktop" targets cross-compile from one Linux
+# runner with CGO_ENABLED=0 — no macOS/Windows runners needed. Each build is
+# stamped with a build number (the workflow run number) plus the commit SHA,
+# injected into main.version via -ldflags.
+#
+# Signing / notarization (macOS Gatekeeper, Windows Authenticode) is a Phase 3
+# concern (PhaseMapping.md) and is intentionally not done here.
+name: build
+
+on:
+  push:
+    branches: [master] # a merged PR is a push to master
+  pull_request:
+    branches: [master] # run checks (test + cross-compile) on PRs
+  workflow_dispatch: {} # allow manual builds
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test # only ship artifacts from green code
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64 # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Compute version / build number
+        id: version
+        run: |
+          sha7="${GITHUB_SHA::7}"
+          version="0.1.0-b${{ github.run_number }}.${sha7}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Build number ${{ github.run_number }} -> version $version"
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="bridge_${VERSION}_${GOOS}_${GOARCH}"
+          bin="bridge"
+          [ "$GOOS" = "windows" ] && bin="bridge.exe"
+          mkdir -p "dist/${name}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/${name}/${bin}" ./cmd/bridge
+          echo "${VERSION}  ${GOOS}/${GOARCH}  ${GITHUB_SHA}" > "dist/${name}/BUILD_INFO.txt"
+          ( cd dist
+            if [ "$GOOS" = "windows" ]; then
+              zip -qr "${name}.zip" "${name}"
+            else
+              tar -czf "${name}.tar.gz" "${name}"
+            fi )
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+          # Short-lived: PR artifacts back the PR comment link; master artifacts
+          # are just the handoff to the release job (the Release is durable).
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 7 }}
+
+  # On PRs, post (and keep updating) a sticky comment linking to the artifacts
+  # uploaded by the build matrix above, so reviewers can grab the binaries
+  # straight from the PR. GitHub has no API to attach a file directly to a PR,
+  # so this links to the run's Artifacts section (download needs sign-in).
+  pr-artifacts-comment:
+    name: link artifacts on PR
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- build-artifacts-comment -->';
+            const sha7 = context.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '### 📦 Build artifacts for this PR',
+              '',
+              `Cross-compiled \`bridge\` binaries (build \`0.1.0-b${context.runNumber}.${sha7}\`, commit \`${sha7}\`):`,
+              '',
+              '- `bridge-linux-amd64`',
+              '- `bridge-linux-arm64`',
+              '- `bridge-windows-amd64`',
+              '- `bridge-darwin-arm64` (Apple Silicon)',
+              '',
+              `Download them from the **Artifacts** section of [this workflow run](${runUrl}).`,
+              '_(GitHub requires sign-in to download workflow artifacts; they expire after 14 days.)_',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body,
+              });
+            }
+
+  # On merge to master, gather all matrix binaries and publish them as assets on
+  # a tagged GitHub Release, so they are durable and downloadable without sign-in.
+  release:
+    name: publish release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag + release
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist # each artifact lands in dist/<artifact-name>/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-b${{ github.run_number }}
+          name: Build ${{ github.run_number }} (v0.1.0-b${{ github.run_number }})
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip

@@ -13,7 +13,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -42,38 +45,77 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	// `bridge status`: query the running daemon's local UI API and print.
-	if len(os.Args) > 1 && os.Args[1] == "status" {
-		if err := printStatus(); err != nil {
-			log.Error("status", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+	// Subcommands are dispatched before config parsing so they need no device
+	// token. Anything not matched here falls through to the daemon.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "help", "-h", "--help":
+			usage(os.Stdout)
+			return
 
-	// One-shot discovery mode: list connected printers and exit. Handled before
-	// config so it needs no device token.
-	if slices.Contains(os.Args[1:], "-list-printers") || slices.Contains(os.Args[1:], "--list-printers") {
-		if err := listPrinters(); err != nil {
-			log.Error("printer discovery failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
+		case "status": // query the running daemon's local UI API and print
+			if err := printStatus(); err != nil {
+				log.Error("status", "err", err)
+				os.Exit(1)
+			}
+			return
 
-	// One-shot print mode: send a raster file to the first discovered printer,
-	// for validating the real driver against hardware. Usage: -print <file>.
-	if path, ok := flagValue(os.Args[1:], "-print", "--print"); ok {
-		if err := printFile(path); err != nil {
-			log.Error("print failed", "err", err)
-			os.Exit(1)
+		case "enroll": // device-authorization flow -> store token (Phase 2, §5)
+			if err := runEnroll(os.Args[2:], log); err != nil {
+				log.Error("enrollment failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "sign-out": // clear stored credentials
+			if err := runSignOut(log); err != nil {
+				log.Error("sign-out failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "install": // register autostart at login (macOS launchd)
+			if err := runInstall(log); err != nil {
+				log.Error("install failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "uninstall": // remove the autostart registration
+			if err := runUninstall(log); err != nil {
+				log.Error("uninstall failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "list": // detect connected USB printers and exit
+			if err := listPrinters(); err != nil {
+				log.Error("printer discovery failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "print": // send one document to the first printer and exit
+			if len(os.Args) < 3 || strings.HasPrefix(os.Args[2], "-") {
+				fmt.Fprintln(os.Stderr, "usage: bridge print FILE [-w W] [-h H] [-virtual]")
+				os.Exit(2)
+			}
+			if err := printFile(os.Args[2]); err != nil {
+				log.Error("print failed", "err", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 
 	cfg, err := config.Load(os.Args[1:], version)
+	if errors.Is(err, flag.ErrHelp) { // -h/--help mixed with other flags
+		usage(os.Stdout)
+		return
+	}
 	if err != nil {
 		log.Error("configuration error", "err", err)
+		fmt.Fprintln(os.Stderr, "run 'bridge -h' for usage")
 		os.Exit(2)
 	}
 	log.Info("starting bridge",
@@ -142,6 +184,37 @@ func main() {
 	log.Info("bridge stopped cleanly")
 }
 
+// usage prints the command overview and the daemon option flags. It is the
+// bridge's -h/--help/help output, covering the subcommands and one-shot modes
+// that are dispatched before flag parsing (and so are invisible to the flag
+// package's own usage).
+func usage(w io.Writer) {
+	fmt.Fprint(w, `bridge — local print bridge connecting Brother label printers to trencitos
+
+Usage:
+  bridge [options]                  run the bridge daemon (connect over WSS and serve prints)
+  bridge enroll [-server URL]       authorize this bridge in a browser (device flow) and store its token
+  bridge sign-out                   remove stored credentials for this bridge
+  bridge install                    start the bridge automatically at login (macOS launchd)
+  bridge uninstall                  remove the autostart registration
+  bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
+  bridge list                       detect connected USB Brother printers, print them, then exit
+  bridge print FILE [-w W -h H]     send one document (label W×H mm) to the first printer, then exit
+  bridge -h | --help | help         show this help
+
+Options (for the daemon and 'enroll'):
+`)
+	config.FlagUsage(w)
+	fmt.Fprint(w, `
+Environment variables (flags override):
+  BRIDGE_SERVER_URL  BRIDGE_DEV_TOKEN  BRIDGE_INSTALLATION_ID  BRIDGE_HEARTBEAT  BRIDGE_UI_ADDR
+
+After 'bridge enroll', the daemon loads its token from the OS credential store,
+so plain 'bridge' needs no -token. Add -virtual to any mode to use a fake
+printer that captures labels to GIF, or -offline to run without a server.
+`)
+}
+
 // listPrinters runs a single USB discovery scan and prints the connected
 // printers to stdout, then returns. It is the demonstrable Phase 1 discovery
 // path against real hardware.
@@ -193,7 +266,7 @@ func listPrinters() error {
 // real system driver. It is a manual validation harness for the print path
 // against physical hardware. The payload should be a platform-printable document
 // (image/PDF/URF on macOS); label size defaults to 62x45mm, override with
-// -w/-h (mm). Usage: -print <file> [-w 62 -h 45].
+// -w/-h (mm). Usage: bridge print <file> [-w 62 -h 45].
 func printFile(path string) error {
 	doc, err := os.ReadFile(path)
 	if err != nil {
@@ -282,6 +355,9 @@ func printStatus() error {
 		conn = "● connected"
 	}
 	fmt.Printf("%s  server=%s  v%s\n", conn, s.Server, s.Version)
+	if s.Tenant != "" {
+		fmt.Printf("tenant %s\n", s.Tenant)
+	}
 	fmt.Printf("installation %s\n", s.InstallationID)
 	fmt.Printf("printers: %d   recent jobs: %d\n", len(s.Printers), len(s.RecentJobs))
 	for _, p := range s.Printers {

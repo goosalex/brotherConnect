@@ -120,6 +120,7 @@ const statusHTML = `<!doctype html>
 <h1>trencitos print bridge</h1>
 <p class="sub">
  <span class="state {{if .Connected}}ok{{else}}off{{end}}">{{if .Connected}}● Connected{{else}}○ Offline{{end}}</span>
+ {{if .Tenant}}&nbsp;·&nbsp; tenant <code>{{.Tenant}}</code>{{end}}
  &nbsp;·&nbsp; server <code>{{.Server}}</code>
  &nbsp;·&nbsp; v{{.Version}}
 </p>
