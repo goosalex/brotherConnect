@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"brotherConnect/internal/credstore"
@@ -45,6 +46,12 @@ type Config struct {
 	VirtualOut string
 	// UIAddr is the loopback address for the local status UI. Empty disables it.
 	UIAddr string
+	// Niimbot enables discovery of NIIMBOT printers over Bluetooth LE
+	// (docs/niimbot.md). Needs a cgo build on macOS.
+	Niimbot bool
+	// NiimbotSerial lists serial/SPP ports to probe for NIIMBOT printers
+	// (e.g. /dev/cu.B1-XXXX), usable without BLE support.
+	NiimbotSerial []string
 }
 
 // Default dev endpoint from Requirements.md §1.
@@ -63,6 +70,36 @@ func registerFlags(fs *flag.FlagSet, c *Config) {
 	fs.StringVar(&c.VirtualOut, "virtual-out", "labels", "directory the virtual printer writes captured labels to")
 	fs.Bool("debug", false, "verbose (debug-level) logging")
 	fs.StringVar(&c.UIAddr, "ui-addr", env("BRIDGE_UI_ADDR", "127.0.0.1:17600"), "local status UI address (empty disables)")
+	fs.BoolVar(&c.Niimbot, "niimbot", envBool("BRIDGE_NIIMBOT", true), "discover NIIMBOT label printers over Bluetooth LE")
+	fs.Func("niimbot-serial", "comma-separated serial/SPP ports of NIIMBOT printers (e.g. /dev/cu.B1-XXXX)", func(v string) error {
+		c.NiimbotSerial = splitList(v)
+		return nil
+	})
+	c.NiimbotSerial = splitList(env("BRIDGE_NIIMBOT_SERIAL", ""))
+}
+
+// splitList splits a comma-separated list, dropping empty items.
+func splitList(v string) []string {
+	var out []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// envBool reads a boolean environment variable ("1", "true", "yes" are true).
+func envBool(key string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "":
+		return def
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // FlagUsage writes the daemon option flags and their defaults to w. The bridge

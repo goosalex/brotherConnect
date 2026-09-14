@@ -31,6 +31,9 @@ and in what order:
 - **`docs/server-contract.md`** — how trencitos produces print payloads (PDF via
   a `LabelRenderer`, not raster) and what the bridge consumes. Read before
   touching the print path or the payload format.
+- **`docs/niimbot.md`** — NIIMBOT B1/B21 support: protocol, BLE/serial
+  transports, print tasks, rasterisation, field log from the B1. Read before
+  touching `internal/niimbot` or `internal/printer/niimbot.go`.
 - **`docs/ui-design.md`** — minimal cross-OS daemon UI (status + token/server/
   tenant config): web-UI-first, CLI, optional tray, and why the UI keeps the
   single-binary deployment model (installers are a Phase-3 signing/tray concern).
@@ -67,6 +70,9 @@ bridge install / uninstall             # register/remove login-agent autostart (
 bridge list                            # one-shot: discovered USB printers + live status/media
 bridge print <file> [-w 62 -h 45]      # one-shot: send a document to the real printer
 bridge status                          # query a running daemon's local UI API
+bridge niimbot scan                    # find NIIMBOT printers over Bluetooth LE
+bridge niimbot info [-name B1-]        # model, serial, firmware, battery, roll RFID, status
+bridge niimbot print FILE [-w 50 -h 30 -copies N] [-dry-run -preview out.png]
 bridge -h                              # full command + option help
 ```
 
@@ -88,7 +94,18 @@ The renderer (`internal/printer/render.go`) decodes PNG/JPEG/GIF, native Brother
 raster (`g`/`Z` command stream, compressed or not), and PDF (via `sips` on
 macOS); unrecognised payloads are saved raw.
 
+**NIIMBOT printers (B1/B21).** `internal/niimbot` is a pure protocol package
+(packets, print tasks, 1-bit raster encoding) over a `Transport`: BLE via
+`tinygo.org/x/bluetooth` (`ble.go`, **cgo on macOS**; `ble_stub.go` otherwise)
+or serial/SPP via `go.bug.st/serial`. `printer.NiimbotBackend` plugs it into
+discovery/queue; the daemon merges it with the Brother backends through
+`printer.MultiDiscoverer`/`MultiDriver` (`-niimbot`, `-niimbot-serial`).
+Unlike Brother, the bridge rasterises payloads itself for NIIMBOT. Build with
+cgo on macOS (`env -u GOROOT go build ./cmd/bridge`); a `CGO_ENABLED=0` darwin
+build compiles but has no BLE. Test device: B1 `B1-I711131967`.
+
 ## Notes
 
 - Go 1.26 is required (see `go.mod`).
+- macOS builds need cgo (Xcode command-line tools) for NIIMBOT BLE support.
 - `.idea/` and `brotherConnect.iml` are IntelliJ project files, currently tracked in git.

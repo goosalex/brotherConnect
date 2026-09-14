@@ -109,6 +109,30 @@ Goal: real auth, multi-tenancy, durable queue, network discovery.
   `launchctl bootstrap`, verified live end-to-end. Linux systemd-user and
   Windows Scheduled Task backends return `ErrUnsupported` for now.
 
+## Phase 2b — NIIMBOT printers (B1 / B21)
+
+Goal: print on NIIMBOT B1/B21 over Bluetooth with the same job model. Spec:
+`docs/niimbot.md`.
+
+| Item | Req | Depends on | Status |
+| --- | --- | --- | --- |
+| Protocol client (packets, tasks B1 / B21_V1 / D110, raster encoding) | §8 | niimbluelib protocol docs | ☑ |
+| BLE transport + discovery (macOS) | §6 | tinygo bluetooth (cgo on macOS) | ☑ |
+| Serial / SPP transport | §6 | go.bug.st/serial | ◐ |
+| Bridge backend (discover, status, print, queue integration) | §6, §8, §9a | — | ☑ |
+| Verified on B1 hardware (info, status, PNG/PDF print, copies) | §19 | printer in hand | ☑ |
+| Verified on B21 hardware | §2 | B21 in hand | ☐ |
+| Media size from RFID barcode | §8 | barcode → label table | ☐ |
+| BLE on Linux (BlueZ) / Windows (WinRT) | §2 | test machines | ☐ |
+| macOS Bluetooth permission under launchd | §5 | Phase 3 signing | ☐ |
+
+**Notes:** BLE is the primary transport; it is verified end to end on the B1
+from macOS. Serial/SPP (◐) answers correctly but the macOS SPP link wedged
+after an aborted unpaced print and did not recover in-session, so it is a
+fallback (`-niimbot-serial`). The macOS release binary must be a cgo build
+(CI now builds darwin on a macOS runner); a CGO_ENABLED=0 darwin build runs
+without BLE.
+
 ## Phase 3 — Production hardening
 
 Goal: installable, signed, monitored, multi-model.
@@ -147,6 +171,8 @@ Cross-cutting blockers, tracked once here (see Requirements §18).
 | Brother QL raster command reference | Spec | Phase 0/1 | ☐ |
 | libusb / gousb (or pure-Go USB) | Library | Phase 1 | ☐ |
 | mDNS/Bonjour library | Library | Phase 2 | ☐ |
+| Bluetooth LE library (tinygo.org/x/bluetooth; cgo on macOS) | Library | Phase 2b | ☑ |
+| NIIMBOT protocol reference (niimbluelib / printers.niim.blue) | Spec | Phase 2b | ☑ |
 | OS credential stores (3 platforms) | Library | Phase 2 | ☑ (zalando/go-keyring + file fallback) |
 | Apple Developer ID + notarization | Procurement | Phase 3 | ☐ |
 | Windows Authenticode certificate | Procurement | Phase 3 | ☐ |
