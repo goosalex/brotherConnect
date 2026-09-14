@@ -38,6 +38,7 @@ func NewStubBackend(now func() time.Time) *StubBackend {
 		SerialNumber:   "SN-STUB-0001",
 		Connection:     ConnectionUSB,
 		Status:         StatusReady,
+		DPI:            300,
 		LoadedWidthMM:  62, // DK-N standard continuous roll width
 		LoadedHeightMM: 0,  // continuous roll: height unbounded
 	}

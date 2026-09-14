@@ -320,6 +320,7 @@ func (b *NiimbotBackend) identify(ctx context.Context, tr niimbot.Transport, add
 			SerialNumber: serial,
 			Connection:   ConnectionBluetooth,
 			Status:       statusFromHeartbeat(hb),
+			DPI:          model.DPI,
 		},
 	}
 	if strings.HasPrefix(address, "serial:") {

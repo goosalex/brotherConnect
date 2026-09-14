@@ -59,6 +59,7 @@ func NewVirtualBackend(outDir string, notify io.Writer) *VirtualBackend {
 			SerialNumber:   "VIRTUAL-BROTHER-62",
 			Connection:     ConnectionUSB,
 			Status:         StatusReady,
+			DPI:            300,
 			LoadedWidthMM:  62, // 62mm continuous tape
 			LoadedHeightMM: 0,
 		},

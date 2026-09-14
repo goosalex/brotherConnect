@@ -52,6 +52,9 @@ func parseBrotherPrinters(raw []byte) ([]Printer, error) {
 	return out, nil
 }
 
+// BrotherQLDPI is the print resolution of the Brother QL series (300 dpi).
+const BrotherQLDPI = 300
+
 // brotherPrinter converts a USB tree node into a Printer if it is a supported
 // Brother QL-series printer.
 func brotherPrinter(it spUSBItem) (Printer, bool) {
@@ -76,6 +79,7 @@ func brotherPrinter(it spUSBItem) (Printer, bool) {
 		Model:        model(it),
 		SerialNumber: serial,
 		Connection:   ConnectionUSB,
+		DPI:          BrotherQLDPI,
 		// Discovery establishes presence only. Live status (out of media, cover
 		// open) requires talking to the device and is the Driver's job
 		// (Requirements.md §9a); default a discovered printer to ready.

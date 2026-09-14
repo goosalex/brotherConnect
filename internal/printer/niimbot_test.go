@@ -205,7 +205,7 @@ func TestNiimbotDiscoveryConnectAndExpire(t *testing.T) {
 		t.Fatalf("expected connected event, got %+v", evs)
 	}
 	p := evs[0].Printer
-	if p.ID != "niimbot-I711131967" || p.Model != "NIIMBOT B1" || p.Connection != ConnectionBluetooth || p.Status != StatusReady {
+	if p.ID != "niimbot-I711131967" || p.Model != "NIIMBOT B1" || p.Connection != ConnectionBluetooth || p.Status != StatusReady || p.DPI != 203 {
 		t.Errorf("printer %+v", p)
 	}
 	if !b.Owns(p.ID) || b.Owns("SN-BROTHER") {

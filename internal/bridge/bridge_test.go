@@ -58,6 +58,37 @@ func TestEndToEndJobPath(t *testing.T) {
 	})
 }
 
+// TestPrinterUpdateCarriesResolution checks the printer_update sent on
+// discovery includes the print-head DPI (docs/server-contract.md).
+func TestPrinterUpdateCarriesResolution(t *testing.T) {
+	conn := transport.NewFakeConn()
+	welcome, _ := protocol.Encode(protocol.TypeWelcome, protocol.Welcome{ProtocolVersion: protocol.Version})
+	conn.Push(welcome)
+
+	backend := printer.NewStubBackend(nil)
+	b := New(config.Config{InstallationID: "bri_test", BridgeVersion: "test"}, transport.NewFakeDialer(conn), backend, backend, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.Run(ctx)
+
+	waitFor(t, func() bool {
+		for _, e := range conn.Sent() {
+			if e.Type != protocol.TypePrinterUpdate {
+				continue
+			}
+			var u protocol.PrinterUpdate
+			_ = protocol.Decode(e, &u)
+			if u.PrinterID == "SN-STUB-0001" {
+				if u.DPI != 300 || u.Connection != "usb" {
+					t.Fatalf("printer_update = %+v, want dpi 300 usb", u)
+				}
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

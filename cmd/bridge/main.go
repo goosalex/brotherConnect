@@ -390,7 +390,11 @@ func printStatus() error {
 	fmt.Printf("installation %s\n", s.InstallationID)
 	fmt.Printf("printers: %d   recent jobs: %d\n", len(s.Printers), len(s.RecentJobs))
 	for _, p := range s.Printers {
-		fmt.Printf("  - %s (%s) %s\n", p.Model, p.ID, p.Status)
+		res := ""
+		if p.DPI > 0 {
+			res = fmt.Sprintf(" %ddpi", p.DPI)
+		}
+		fmt.Printf("  - %s (%s) %s%s\n", p.Model, p.ID, p.Status, res)
 	}
 	return nil
 }

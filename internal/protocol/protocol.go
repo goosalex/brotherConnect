@@ -77,6 +77,11 @@ type PrinterUpdate struct {
 	Connection   string `json:"connection"` // "usb" | "network"
 	Status       string `json:"status"`     // e.g. "ready", "out_of_media", "cover_open", "offline"
 	Available    bool   `json:"available"`
+	// DPI is the print-head resolution in dots per inch (Brother QL 300,
+	// NIIMBOT B1/B21 203), so the server can size barcodes and QR codes for
+	// the device (see docs/niimbot.md §6.1 for measured minimums). Omitted
+	// when unknown.
+	DPI int `json:"dpi,omitempty"`
 	// LoadedWidthMM / LoadedHeightMM are the sensed loaded media in millimetres,
 	// where the device reports it. Omitted (0) when unknown; a 0 height means
 	// continuous tape (width only).
