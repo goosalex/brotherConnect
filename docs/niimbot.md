@@ -202,11 +202,14 @@ These are real readings, not margins:
 | Symbology | Modules / bars | Content | Smallest that scanned | Dots |
 | --- | --- | --- | --- | --- |
 | QR, ECC M | 29 (version 3) | `https://box.trencitos.dev/i/000123` | **8 mm** | 2.2 px / module |
-| Micro QR M4, ECC L | 17 | `HTTP://TRN.DEV/AB123` (alphanumeric) | **6 mm** (5 mm did not read) | 2.8 px / module |
+| Micro QR M4, ECC L | 17 | `HTTP://TRN.DEV/AB123` (alphanumeric) | **6 mm** (5 mm did not read); 6/7/8 mm reference set printed | 2.8 px / module |
 | Code 39 | 6 chars + start/stop | `TR4B2K` | **2 mm high, 1 px narrow / 2 px wide bars** (12.9 mm wide) | narrow 0.125 mm |
 
-Micro QR holds at most 21 alphanumeric / 15 byte characters and is not
-supported by every scanner app. Use `bridge niimbot print FILE -dry-run
+**6 mm is the minimum for a Micro QR on this 203 dpi NIIMBOT head, and only
+on a clean, calm background such as a plain white label** — busy surroundings
+(text, graphics or edges close to the symbol) defeat the scanner at that size,
+so keep the quiet zone generous. Micro QR holds at most 21 alphanumeric /
+15 byte characters and is not supported by every scanner app. Use `bridge niimbot print FILE -dry-run
 -preview out.png` to inspect the exact 1-bit raster before printing; for
 1-px barcodes supply a PNG at the label's pixel size (8 dots/mm) so no
 resampling occurs.

@@ -250,7 +250,8 @@ delivery path:
   so the **bridge rasterises** the PDF/PNG payload itself to the label size at
   the printer's resolution (203 dpi) and streams rows (`docs/niimbot.md` §6).
   The same server payload works unchanged. Measured readable minimums at
-  203 dpi: QR (29 modules) 8 mm, Micro QR M4 (17 modules) 6 mm, Code 39
+  203 dpi: QR (29 modules) 8 mm, Micro QR M4 (17 modules) 6 mm (only on a clean white
+  background with a generous quiet zone), Code 39
   2 mm high with 1 px narrow / 2 px wide bars (`docs/niimbot.md` §6.1).
 
 Recommended default: the server emits a rendered document (PDF or PNG) plus the
