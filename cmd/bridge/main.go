@@ -29,6 +29,7 @@ import (
 
 	"brotherConnect/internal/bridge"
 	"brotherConnect/internal/config"
+	"brotherConnect/internal/niimbot"
 	"brotherConnect/internal/printer"
 	"brotherConnect/internal/transport"
 	"brotherConnect/internal/ui"
@@ -84,6 +85,13 @@ func main() {
 		case "uninstall": // remove the autostart registration
 			if err := runUninstall(log); err != nil {
 				log.Error("uninstall failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
+		case "niimbot": // NIIMBOT (BLE/serial) scan, info and test print
+			if err := runNiimbot(os.Args[2:], log); err != nil {
+				log.Error("niimbot", "err", err)
 				os.Exit(1)
 			}
 			return
@@ -152,6 +160,23 @@ func main() {
 			dr = printer.NewStubBackend(nil)
 		}
 		driver = dr
+
+		// NIIMBOT printers over Bluetooth LE / serial (docs/niimbot.md), merged
+		// with the Brother backends. Skipped when BLE is not compiled in and no
+		// serial ports are configured.
+		if cfg.Niimbot || len(cfg.NiimbotSerial) > 0 {
+			if !niimbot.BLEAvailable() && len(cfg.NiimbotSerial) == 0 {
+				log.Warn("NIIMBOT support disabled: BLE not available in this build (macOS needs cgo); set -niimbot-serial to use a serial port")
+			} else {
+				nb := printer.NewNiimbotBackend(printer.NiimbotOptions{
+					SerialPorts: cfg.NiimbotSerial,
+					DisableBLE:  !cfg.Niimbot || !niimbot.BLEAvailable(),
+					Log:         log,
+				})
+				disc = printer.NewMultiDiscoverer(disc, nb)
+				driver = printer.NewMultiDriver(driver, nb)
+			}
+		}
 	}
 
 	// Real wss:// dialer authenticating with the device token. -offline swaps in
@@ -200,6 +225,9 @@ Usage:
   bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
   bridge list                       detect connected USB Brother printers, print them, then exit
   bridge print FILE [-w W -h H]     send one document (label W×H mm) to the first printer, then exit
+  bridge niimbot scan               scan for NIIMBOT label printers over Bluetooth LE
+  bridge niimbot info [-addr A]     connect to a NIIMBOT printer and print its status/media
+  bridge niimbot print FILE [...]   print one document on a NIIMBOT printer (-w -h -copies -density)
   bridge -h | --help | help         show this help
 
 Options (for the daemon and 'enroll'):
@@ -208,6 +236,7 @@ Options (for the daemon and 'enroll'):
 	fmt.Fprint(w, `
 Environment variables (flags override):
   BRIDGE_SERVER_URL  BRIDGE_DEV_TOKEN  BRIDGE_INSTALLATION_ID  BRIDGE_HEARTBEAT  BRIDGE_UI_ADDR
+  BRIDGE_NIIMBOT  BRIDGE_NIIMBOT_SERIAL
 
 After 'bridge enroll', the daemon loads its token from the OS credential store,
 so plain 'bridge' needs no -token. Add -virtual to any mode to use a fake
@@ -361,7 +390,11 @@ func printStatus() error {
 	fmt.Printf("installation %s\n", s.InstallationID)
 	fmt.Printf("printers: %d   recent jobs: %d\n", len(s.Printers), len(s.RecentJobs))
 	for _, p := range s.Printers {
-		fmt.Printf("  - %s (%s) %s\n", p.Model, p.ID, p.Status)
+		res := ""
+		if p.DPI > 0 {
+			res = fmt.Sprintf(" %ddpi", p.DPI)
+		}
+		fmt.Printf("  - %s (%s) %s%s\n", p.Model, p.ID, p.Status, res)
 	}
 	return nil
 }

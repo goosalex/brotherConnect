@@ -127,9 +127,9 @@ const statusHTML = `<!doctype html>
 <p class="sub">installation <code>{{.InstallationID}}</code></p>
 
 <h2 style="font-size:1rem">Printers</h2>
-{{if .Printers}}<table><tr><th>Model</th><th>ID</th><th>Status</th><th>Media</th></tr>
+{{if .Printers}}<table><tr><th>Model</th><th>ID</th><th>Status</th><th>Resolution</th><th>Media</th></tr>
 {{range .Printers}}<tr><td>{{.Model}}</td><td><code>{{.ID}}</code></td><td>{{.Status}}</td>
-<td>{{if .LoadedWidthMM}}{{.LoadedWidthMM}}mm{{if .LoadedHeightMM}}×{{.LoadedHeightMM}}mm{{else}} (continuous){{end}}{{else}}—{{end}}</td></tr>{{end}}
+<td>{{if .DPI}}{{.DPI}} dpi{{else}}—{{end}}</td><td>{{if .LoadedWidthMM}}{{.LoadedWidthMM}}mm{{if .LoadedHeightMM}}×{{.LoadedHeightMM}}mm{{else}} (continuous){{end}}{{else}}—{{end}}</td></tr>{{end}}
 </table>{{else}}<p class="empty">No printers discovered.</p>{{end}}
 
 <h2 style="font-size:1rem">Recent jobs</h2>

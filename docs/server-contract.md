@@ -94,6 +94,44 @@ The bridge never parses or transforms the PDF and never generates raster. It
 needs the label dimensions alongside the PDF to size the page correctly (a PDF
 alone printed to the default media prints tiny — see PhaseMapping.md).
 
+## Printer registration: `printer_update` carries the resolution
+
+When a printer is discovered (and on every status change) the bridge sends a
+`printer_update` message. Besides identity, status and the sensed media, it
+now carries the print-head resolution so the server can size barcodes and QR
+codes for the device it is rendering for:
+
+```json
+{
+  "type": "printer_update",
+  "payload": {
+    "printer_id": "niimbot-I711131967",
+    "model": "NIIMBOT B1",
+    "serial_number": "I711131967",
+    "connection": "bluetooth",
+    "status": "ready",
+    "available": true,
+    "dpi": 203,
+    "loaded_width_mm": 62,
+    "loaded_height_mm": 0
+  }
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `connection` | `usb`, `network` or `bluetooth` |
+| `dpi` | print-head resolution in dots per inch: Brother QL **300**, NIIMBOT B1/B21 **203**. Omitted when unknown. |
+| `loaded_width_mm` / `loaded_height_mm` | sensed media where the device reports it (Brother via IPP); omitted for NIIMBOT, whose RFID tag carries no dimensions |
+
+Why `dpi` matters: the payload is a PDF in millimetres, and the bridge
+rasterises it for NIIMBOT at 203 dpi. Symbols that are fine on a 300 dpi
+Brother can fall below the readable minimum there. Measured on a NIIMBOT B1
+with a simple Android phone (`docs/niimbot.md` §6.1): QR (29 modules) 8 mm,
+Micro QR M4 6 mm on a clean white background, Code 39 2 mm high with 1 px
+narrow / 2 px wide bars. The server should pick symbol sizes from the target
+printer's `dpi` rather than from a fixed stock definition.
+
 ## Open items to confirm with trencitos (Phase 0)
 
 - **Add a Brother-QL `LabelStock`** that renders single-label PDFs sized to the
@@ -102,5 +140,7 @@ alone printed to the default media prints tiny — see PhaseMapping.md).
   when the target is a QL bridge.
 - **QR payload format (Q24)** — not needed by the bridge (it prints whatever the
   PDF contains) but relevant to the overall flow.
+- **Consume `dpi` from `printer_update`** when choosing barcode/QR sizes per
+  printer (see above).
 - **Max payload size** — agree a ceiling (Requirements.md §10); PDFs with
   embedded thumbnails/fonts are larger than raster.

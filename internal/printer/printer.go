@@ -46,6 +46,10 @@ type Printer struct {
 	SerialNumber string
 	Connection   Connection
 	Status       Status
+	// DPI is the print-head resolution in dots per inch (e.g. Brother QL 300,
+	// NIIMBOT B1 203). The server uses it to size barcodes and QR codes for
+	// the device; 0 means unknown.
+	DPI int
 	// LoadedMediaMM is the media size currently loaded, used to validate jobs
 	// against requested label dimensions. Zero values mean unknown.
 	LoadedWidthMM  float64

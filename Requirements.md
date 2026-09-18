@@ -1,11 +1,13 @@
 # Requirements Sheet: Multi-Tenant Label-Printing Bridge
 
-**Version:** 1.1
-**Date:** September 8, 2026
+**Version:** 1.2
+**Date:** September 14, 2026
 **Status:** Draft
 
 ### Revision history
 
+- **1.2** — Added NIIMBOT B1/B21 support (Bluetooth LE discovery, bridge-side
+  rasterisation); see `docs/niimbot.md`.
 - **1.1** — Split acceptance criteria per phase; added Phase 0 (server contract),
   a Dependencies / External Systems section, and printer status-feedback
   requirements; clarified idempotency, job-field ownership, and media-mismatch
@@ -52,6 +54,8 @@ The bridge connects locally discovered Brother label printers to that applicatio
 - Brother QL-series printers
 - USB-connected printers
 - Network printers discovered through Bonjour/mDNS
+- NIIMBOT B1 and B21 thermal label printers over Bluetooth LE (or a serial /
+  SPP port); see `docs/niimbot.md`
 
 Network discovery applies only to network-capable Brother QL models
 (for example QL-820NWB, QL-1110NWB). USB-only models (for example QL-800)
@@ -177,6 +181,17 @@ The bridge must:
 - Avoid requiring manual IP entry
 - Confirm printer availability before printing
 
+### Bluetooth (NIIMBOT)
+
+The bridge must:
+
+- Discover NIIMBOT B1/B21 printers advertising over Bluetooth LE without
+  pairing or manual address entry
+- Report model, serial number and connection type `bluetooth`
+- Detect a printer disappearing (powered off, out of range)
+- Hold the link only while identifying, reading status or printing, so the
+  printer remains usable from other apps in between
+
 ### Printer identity
 
 Each printer should have a stable identifier based on:
@@ -231,6 +246,14 @@ delivery path:
   exists — a Linux USB printer device (`/dev/usb/lp*`) or the printer's network
   raw port (TCP 9100). Not available for USB-connected printers on macOS.
 
+- **NIIMBOT B1/B21 (Bluetooth):** the printers accept only 1-bit bitmap rows,
+  so the **bridge rasterises** the PDF/PNG payload itself to the label size at
+  the printer's resolution (203 dpi) and streams rows (`docs/niimbot.md` §6).
+  The same server payload works unchanged. Measured readable minimums at
+  203 dpi: QR (29 modules) 8 mm, Micro QR M4 (17 modules) 6 mm (only on a clean white
+  background with a generous quiet zone), Code 39
+  2 mm high with 1 px narrow / 2 px wide bars (`docs/niimbot.md` §6.1).
+
 Recommended default: the server emits a rendered document (PDF or PNG) plus the
 label dimensions; the bridge sizes and submits it. This keeps one server output
 across platforms and lets each platform's print system handle device specifics.
@@ -239,7 +262,8 @@ item is a Brother-QL single-label stock. See `docs/server-contract.md`.
 
 If the job's label dimensions do not match the printer's loaded media, the
 bridge must fail the job with a clear, human-readable reason rather than print
-an incorrect label.
+an incorrect label. Where the printer cannot report its media size (NIIMBOT
+RFID tags carry a roll barcode, not dimensions) the check is skipped.
 
 The bridge must:
 
@@ -476,6 +500,9 @@ corresponding server capability.
   Linux Secret Service / libsecret (three separate integrations;
   Secret Service may be unavailable on headless Linux)
 - Bonjour/mDNS discovery library
+- Bluetooth LE: `tinygo.org/x/bluetooth` (CoreBluetooth on macOS — requires
+  cgo and a native macOS build; BlueZ/WinRT are pure Go) and `go.bug.st/serial`
+  for serial/SPP ports (NIIMBOT, `docs/niimbot.md`)
 - Tray / menu-bar integration (platform-specific; "where practical")
 
 ### Procurement and infrastructure (Phase 3 lead time)

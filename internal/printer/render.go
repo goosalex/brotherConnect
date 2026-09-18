@@ -267,3 +267,10 @@ func rasterRowsToImage(rows [][]byte) image.Image {
 	}
 	return img
 }
+
+// DecodeDocument turns a print payload (PDF, PNG, JPEG, GIF or Brother
+// raster) into an image for backends that rasterise on the bridge, such as the
+// NIIMBOT driver. It returns the image and a short format label.
+func DecodeDocument(ctx context.Context, doc []byte) (image.Image, string, error) {
+	return decodeToImage(ctx, doc)
+}

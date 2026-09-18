@@ -4,11 +4,14 @@
 #   - merge to master: cross-compile and publish the binaries as assets on a
 #     tagged GitHub Release (durable, sign-in-free download).
 #
-# The bridge is a single cgo-free Go binary that serves its own local web UI
-# (docs/ui-design.md), so all "desktop" targets cross-compile from one Linux
-# runner with CGO_ENABLED=0 — no macOS/Windows runners needed. Each build is
-# stamped with a build number (the workflow run number) plus the commit SHA,
-# injected into main.version via -ldflags.
+# The bridge is a single Go binary that serves its own local web UI
+# (docs/ui-design.md). Linux and Windows targets cross-compile from one Linux
+# runner with CGO_ENABLED=0. macOS is built natively on a macOS runner with cgo
+# because NIIMBOT Bluetooth LE support uses CoreBluetooth via cgo
+# (docs/niimbot.md §3); a CGO_ENABLED=0 darwin build still works but ships
+# without BLE (serial/SPP only). Each build is stamped with a build number (the
+# workflow run number) plus the commit SHA, injected into main.version via
+# -ldflags.
 #
 # Signing / notarization (macOS Gatekeeper, Windows Authenticode) is a Phase 3
 # concern (PhaseMapping.md) and is intentionally not done here.
@@ -40,19 +43,27 @@ jobs:
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: test # only ship artifacts from green code
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
+            cgo: "0"
           - goos: linux
             goarch: arm64
+            runner: ubuntu-latest
+            cgo: "0"
           - goos: windows
             goarch: amd64
+            runner: ubuntu-latest
+            cgo: "0"
           - goos: darwin
-            goarch: arm64 # Apple Silicon
+            goarch: arm64 # Apple Silicon; native cgo build for CoreBluetooth (NIIMBOT BLE)
+            runner: macos-latest
+            cgo: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +82,7 @@ jobs:
 
       - name: Build
         env:
-          CGO_ENABLED: "0"
+          CGO_ENABLED: ${{ matrix.cgo }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ steps.version.outputs.version }}

@@ -227,6 +227,7 @@ func (b *Bridge) sendPrinterUpdate(p printer.Printer, available bool) {
 		Connection:     string(p.Connection),
 		Status:         string(p.Status),
 		Available:      available && p.Available(),
+		DPI:            p.DPI,
 		LoadedWidthMM:  p.LoadedWidthMM,
 		LoadedHeightMM: p.LoadedHeightMM,
 	}
