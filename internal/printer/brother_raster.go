@@ -39,7 +39,9 @@ type brotherModel struct {
 func brotherModelFor(model string) brotherModel {
 	m := strings.ToUpper(model)
 	switch {
-	case containsAny(m, "QL-1050", "QL-1060", "QL-1100", "QL-1110", "QL-1115"):
+	case containsAny(m, "QL-1100", "QL-1110", "QL-1115"):
+		return brotherModel{name: model, pins: 1296, extraOffset: 44, modeSwitch: true, cutter: true, minLength: 301, maxLength: 35434}
+	case containsAny(m, "QL-1050", "QL-1060"):
 		return brotherModel{name: model, pins: 1296, extraOffset: 44, modeSwitch: true, cutter: true, minLength: 295, maxLength: 35433}
 	case strings.Contains(m, "QL-500"):
 		return brotherModel{name: model, pins: 720, minLength: 295, maxLength: 11811}
