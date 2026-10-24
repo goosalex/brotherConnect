@@ -34,6 +34,9 @@ and in what order:
 - **`docs/niimbot.md`** — NIIMBOT B1/B21 support: protocol, BLE/serial
   transports, print tasks, rasterisation, field log from the B1. Read before
   touching `internal/niimbot` or `internal/printer/niimbot.go`.
+- **`docs/macos-legacy.md`** — the Go 1.20 build for macOS 10.13 (Intel, USB
+  Brother only): raw CUPS queues, bridge-side Brother raster, bundled TLS
+  roots, and the rules that keep shared code Go 1.20-compatible.
 - **`docs/ui-design.md`** — minimal cross-OS daemon UI (status + token/server/
   tenant config): web-UI-first, CLI, optional tray, and why the UI keeps the
   single-binary deployment model (installers are a Phase-3 signing/tray concern).
@@ -67,6 +70,7 @@ bridge -offline                        # in-memory transport, no server (discove
 bridge enroll [-server <url>]          # device-authorization flow -> token in OS credential store
 bridge sign-out                        # clear stored credentials
 bridge install / uninstall             # register/remove login-agent autostart (macOS launchd)
+sudo bridge setup-usb                  # macOS 10.13 only: raw CUPS queues for USB Brother QL printers
 bridge list                            # one-shot: discovered USB printers + live status/media
 bridge print <file> [-w 62 -h 45]      # one-shot: send a document to the real printer
 bridge status                          # query a running daemon's local UI API
@@ -108,4 +112,29 @@ build compiles but has no BLE. Test device: B1 `B1-I711131967`.
 
 - Go 1.26 is required (see `go.mod`).
 - macOS builds need cgo (Xcode command-line tools) for NIIMBOT BLE support.
+- Intel Mac (`darwin/amd64`) is cross-compiled with cgo on Apple Silicon; test it
+  as x86_64 under Rosetta. Always pin the minimum macOS through the cgo flags,
+  because `MACOSX_DEPLOYMENT_TARGET` alone is not in Go's build-cache key and can
+  be silently ignored:
+  ```sh
+  env -u GOROOT CGO_ENABLED=1 GOARCH=amd64 \
+    CGO_CFLAGS="-O2 -g -mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=12.0" \
+    go test ./...    # or: go build -o dist/bridge ./cmd/bridge
+  ```
+  Verify with `lipo -archs` and `otool -l <bin> | grep minos`. CI does the same
+  (`MACOS_MIN` in `.github/workflows/build.yml`).
+- **Release policy:** every release must ship the Intel legacy macOS asset
+  (`bridge-darwin-amd64-legacy`) alongside all other platform assets. The
+  `release` job in `.github/workflows/build.yml` waits for `legacy-macos` and
+  refuses to publish if any platform asset is missing; keep it that way when
+  editing CI.
+- **Legacy macOS 10.13 build** (`docs/macos-legacy.md`): the same source is also
+  built with **Go 1.20** via `-modfile=go.legacy.mod -tags legacy` (CI job
+  `legacy-macos`). Everything outside `internal/niimbot` and the NIIMBOT glue
+  files must stay Go 1.20-compatible: import `brotherConnect/internal/compat/slog`
+  instead of `log/slog`; no `slices`/`maps`/`cmp`, range-over-int, `clear`,
+  Go 1.22 loop-variable capture, or other post-1.20 features. Use the `legacy`
+  build tag, never `//go:build go1.21` (a goX.Y constraint lowers the file's
+  language version). Never `go mod tidy` the legacy modfile. The doc has the
+  local Go 1.20 commands; the toolchain lives in the ignored `dist/_go120/`.
 - `.idea/` and `brotherConnect.iml` are IntelliJ project files, currently tracked in git.

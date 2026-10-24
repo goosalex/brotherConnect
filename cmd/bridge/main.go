@@ -17,20 +17,19 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"brotherConnect/internal/bridge"
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/config"
-	"brotherConnect/internal/niimbot"
 	"brotherConnect/internal/printer"
+	"brotherConnect/internal/tlstrust"
 	"brotherConnect/internal/transport"
 	"brotherConnect/internal/ui"
 )
@@ -41,7 +40,7 @@ var version = "0.1.0-dev"
 
 func main() {
 	level := slog.LevelInfo
-	if slices.Contains(os.Args[1:], "-debug") || slices.Contains(os.Args[1:], "--debug") {
+	if hasFlag(os.Args[1:], "-debug", "--debug") {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
@@ -96,6 +95,13 @@ func main() {
 			}
 			return
 
+		case "setup-usb": // macOS 10.13: create raw CUPS queues for USB Brother QL printers
+			if err := setupUSB(); err != nil {
+				log.Error("setup-usb failed", "err", err)
+				os.Exit(1)
+			}
+			return
+
 		case "list": // detect connected USB printers and exit
 			if err := listPrinters(); err != nil {
 				log.Error("printer discovery failed", "err", err)
@@ -105,7 +111,7 @@ func main() {
 
 		case "print": // send one document to the first printer and exit
 			if len(os.Args) < 3 || strings.HasPrefix(os.Args[2], "-") {
-				fmt.Fprintln(os.Stderr, "usage: bridge print FILE [-w W] [-h H] [-virtual]")
+				fmt.Fprintln(os.Stderr, "usage: bridge print FILE [-w W] [-h H] [-roll continuous|die-cut] [-virtual]")
 				os.Exit(2)
 			}
 			if err := printFile(os.Args[2]); err != nil {
@@ -154,7 +160,12 @@ func main() {
 
 		// Real print driver (CUPS on macOS) sends the document to the device;
 		// fall back to the stub recorder where unsupported.
-		dr, err := printer.NewSystemDriver()
+		roll, err := printer.ParseRoll(cfg.Roll)
+		if err != nil {
+			log.Error("configuration error", "err", err)
+			os.Exit(2)
+		}
+		dr, err := printer.NewSystemDriverWith(printer.DriverOptions{Roll: roll})
 		if err != nil {
 			log.Warn("system print driver unavailable; using stub driver", "err", err)
 			dr = printer.NewStubBackend(nil)
@@ -162,21 +173,8 @@ func main() {
 		driver = dr
 
 		// NIIMBOT printers over Bluetooth LE / serial (docs/niimbot.md), merged
-		// with the Brother backends. Skipped when BLE is not compiled in and no
-		// serial ports are configured.
-		if cfg.Niimbot || len(cfg.NiimbotSerial) > 0 {
-			if !niimbot.BLEAvailable() && len(cfg.NiimbotSerial) == 0 {
-				log.Warn("NIIMBOT support disabled: BLE not available in this build (macOS needs cgo); set -niimbot-serial to use a serial port")
-			} else {
-				nb := printer.NewNiimbotBackend(printer.NiimbotOptions{
-					SerialPorts: cfg.NiimbotSerial,
-					DisableBLE:  !cfg.Niimbot || !niimbot.BLEAvailable(),
-					Log:         log,
-				})
-				disc = printer.NewMultiDiscoverer(disc, nb)
-				driver = printer.NewMultiDriver(driver, nb)
-			}
-		}
+		// with the Brother backends. Compiled out of the legacy Go 1.20 build.
+		disc, driver = withNiimbot(cfg, disc, driver, log)
 	}
 
 	// Real wss:// dialer authenticating with the device token. -offline swaps in
@@ -187,7 +185,10 @@ func main() {
 		log.Warn("offline mode: using in-memory transport (no server connection)")
 		dialer = transport.NewFakeDialer(transport.NewFakeConn())
 	} else {
-		dialer = transport.NewWSDialer(cfg.ServerURL, cfg.DevToken)
+		wd := transport.NewWSDialer(cfg.ServerURL, cfg.DevToken)
+		// nil except in the legacy macOS 10.13 build, which needs bundled roots.
+		wd.HTTPClient = tlstrust.HTTPClient(0)
+		dialer = wd
 	}
 
 	b := bridge.New(cfg, dialer, disc, driver, log)
@@ -223,6 +224,7 @@ Usage:
   bridge install                    start the bridge automatically at login (macOS launchd)
   bridge uninstall                  remove the autostart registration
   bridge status [-ui-addr ADDR]     print the running daemon's status, then exit
+  bridge setup-usb                  macOS 10.13 only: create print queues for USB Brother QL printers (run with sudo)
   bridge list                       detect connected USB Brother printers, print them, then exit
   bridge print FILE [-w W -h H]     send one document (label W×H mm) to the first printer, then exit
   bridge niimbot scan               scan for NIIMBOT label printers over Bluetooth LE
@@ -236,12 +238,32 @@ Options (for the daemon and 'enroll'):
 	fmt.Fprint(w, `
 Environment variables (flags override):
   BRIDGE_SERVER_URL  BRIDGE_DEV_TOKEN  BRIDGE_INSTALLATION_ID  BRIDGE_HEARTBEAT  BRIDGE_UI_ADDR
-  BRIDGE_NIIMBOT  BRIDGE_NIIMBOT_SERIAL
+  BRIDGE_NIIMBOT  BRIDGE_NIIMBOT_SERIAL  BRIDGE_ROLL
 
 After 'bridge enroll', the daemon loads its token from the OS credential store,
 so plain 'bridge' needs no -token. Add -virtual to any mode to use a fake
 printer that captures labels to GIF, or -offline to run without a server.
 `)
+}
+
+// setupUSB creates raw CUPS queues for USB Brother QL printers, the one-time
+// setup for macOS 10.13 without Brother's driver (docs/macos-legacy.md).
+func setupUSB() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := printer.SetupRawQueues(ctx)
+	for _, s := range res {
+		state := "already set up"
+		if s.Created {
+			state = "created"
+		}
+		fmt.Printf("  - %s (serial %s): queue %s %s\n", s.Device, s.Serial, s.Queue, state)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Println("Done. Run 'bridge list' to check the printer, then start the bridge.")
+	return nil
 }
 
 // listPrinters runs a single USB discovery scan and prints the connected
@@ -287,6 +309,9 @@ func listPrinters() error {
 		}
 		fmt.Printf("  - %s\n      id=%s serial=%s connection=%s status=%s%s\n",
 			p.Model, p.ID, p.SerialNumber, p.Connection, status, media)
+		if pd, ok := driver.(printer.PathDescriber); ok && derr == nil {
+			fmt.Printf("      path: %s\n", pd.DescribePath(ctx, p.ID))
+		}
 	}
 	return nil
 }
@@ -309,7 +334,7 @@ func printFile(path string) error {
 	defer cancel()
 
 	// -virtual: render to a GIF via the virtual printer instead of real hardware.
-	if slices.Contains(os.Args[1:], "-virtual") || slices.Contains(os.Args[1:], "--virtual") {
+	if hasFlag(os.Args[1:], "-virtual", "--virtual") {
 		outDir, ok := flagValue(os.Args[1:], "-virtual-out", "--virtual-out")
 		if !ok {
 			outDir = "labels"
@@ -327,7 +352,15 @@ func printFile(path string) error {
 	}
 	p := printers[0]
 
-	driver, err := printer.NewSystemDriver()
+	rollArg, _ := flagValue(os.Args[1:], "-roll", "--roll")
+	if rollArg == "" {
+		rollArg = os.Getenv("BRIDGE_ROLL")
+	}
+	roll, err := printer.ParseRoll(rollArg)
+	if err != nil {
+		return err
+	}
+	driver, err := printer.NewSystemDriverWith(printer.DriverOptions{Roll: roll})
 	if err != nil {
 		return err
 	}
@@ -397,6 +430,18 @@ func printStatus() error {
 		fmt.Printf("  - %s (%s) %s%s\n", p.Model, p.ID, p.Status, res)
 	}
 	return nil
+}
+
+// hasFlag reports whether any of names appears verbatim in args.
+func hasFlag(args []string, names ...string) bool {
+	for _, a := range args {
+		for _, n := range names {
+			if a == n {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // flagValue returns the value following the first matching flag name in args.

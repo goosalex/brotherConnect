@@ -8,10 +8,10 @@ package queue
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/job"
 	"brotherConnect/internal/printer"
 )

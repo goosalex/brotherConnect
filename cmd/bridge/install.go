@@ -3,12 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"brotherConnect/internal/autostart"
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/credstore"
 )

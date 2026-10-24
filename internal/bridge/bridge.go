@@ -5,12 +5,12 @@ package bridge
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/job"
 	"brotherConnect/internal/printer"

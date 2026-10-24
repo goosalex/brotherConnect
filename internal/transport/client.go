@@ -3,9 +3,9 @@ package transport
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/protocol"
 )
 

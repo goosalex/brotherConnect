@@ -26,13 +26,21 @@ type spUSBItem struct {
 }
 
 // parseBrotherPrinters walks the system_profiler USB tree and returns the
-// connected, supported Brother QL printers. Devices are de-duplicated by
-// identity because the same device can appear at multiple tree positions (e.g.
-// once under a hub). The parser is pure (no OS calls) so it is testable on any
-// platform against a captured fixture.
+// connected, supported Brother QL printers. It accepts both output formats:
+// `-json` (macOS 10.15+) and the `-xml` property list, which is the only
+// machine-readable format on older releases such as 10.13 High Sierra. Devices
+// are de-duplicated by identity because the same device can appear at
+// multiple tree positions (e.g. once under a hub). The parser is pure (no OS
+// calls) so it is testable on any platform against a captured fixture.
 func parseBrotherPrinters(raw []byte) ([]Printer, error) {
 	var report spReport
-	if err := json.Unmarshal(raw, &report); err != nil {
+	if isPlist(raw) {
+		items, err := parseSPUSBPlist(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse system_profiler -xml output: %w", err)
+		}
+		report.Items = items
+	} else if err := json.Unmarshal(raw, &report); err != nil {
 		return nil, fmt.Errorf("parse system_profiler output: %w", err)
 	}
 

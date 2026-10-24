@@ -10,11 +10,11 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/credstore"
 )
 
@@ -52,6 +52,10 @@ type Config struct {
 	// NiimbotSerial lists serial/SPP ports to probe for NIIMBOT printers
 	// (e.g. /dev/cu.B1-XXXX), usable without BLE support.
 	NiimbotSerial []string
+	// Roll is the loaded Brother DK roll kind, "continuous" or "die-cut". Only
+	// used where the bridge renders Brother raster itself (raw queues on
+	// macOS 10.13, docs/macos-legacy.md), since it cannot read it there.
+	Roll string
 }
 
 // Default dev endpoint from Requirements.md §1.
@@ -76,6 +80,7 @@ func registerFlags(fs *flag.FlagSet, c *Config) {
 		return nil
 	})
 	c.NiimbotSerial = splitList(env("BRIDGE_NIIMBOT_SERIAL", ""))
+	fs.StringVar(&c.Roll, "roll", env("BRIDGE_ROLL", "continuous"), "loaded Brother DK roll: continuous or die-cut (macOS 10.13 raw-queue printing only)")
 }
 
 // splitList splits a comma-separated list, dropping empty items.

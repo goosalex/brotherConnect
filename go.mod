@@ -6,6 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/zalando/go-keyring v0.2.8
 	go.bug.st/serial v1.7.0
+	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743
 	tinygo.org/x/bluetooth v0.16.0
 )
 
@@ -20,7 +21,6 @@ require (
 	github.com/soypat/seqs v0.0.0-20260125140838-2c1c6b1bd69e // indirect
 	github.com/tinygo-org/cbgo v0.0.4 // indirect
 	github.com/tinygo-org/pio v0.3.0 // indirect
-	golang.org/x/exp v0.0.0-20260727155853-b88d891fe743 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	tinygo.org/x/espradio v0.3.0 // indirect
 )

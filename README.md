@@ -43,6 +43,16 @@ Download the archive for your platform from the
 [Releases page](https://github.com/goosalex/brotherConnect/releases), unpack it,
 and put `bridge` (or `bridge.exe`) somewhere on your `PATH`.
 
+On a Mac, pick `darwin_arm64` for Apple Silicon (M1 and later) or
+`darwin_amd64` for Intel. `uname -m` prints `arm64` or `x86_64` if you are
+unsure. Both Mac builds need macOS 12 Monterey or later and include NIIMBOT
+Bluetooth support.
+
+Older Intel Macs on macOS 10.13.4 High Sierra or later use
+`darwin_amd64_legacy`. It prints to USB Brother QL printers through macOS's
+driverless queue, with a raw-queue fallback (`sudo bridge setup-usb`), and has
+no NIIMBOT support. See `docs/macos-legacy.md`.
+
 Releases are not code-signed yet (that is Phase 3). On macOS, Gatekeeper will
 refuse to open a downloaded binary until you clear the quarantine flag:
 
@@ -55,6 +65,16 @@ Bluetooth support):
 
 ```sh
 go build ./cmd/bridge
+```
+
+To build the Intel binary on an Apple Silicon Mac, cross-compile with cgo and
+pin the minimum macOS version:
+
+```sh
+CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+  CGO_CFLAGS="-O2 -g -mmacosx-version-min=12.0" \
+  CGO_LDFLAGS="-mmacosx-version-min=12.0" \
+  go build -o bridge ./cmd/bridge
 ```
 
 ### 2. Enroll
@@ -113,8 +133,9 @@ Run `bridge -h` for every flag and the `BRIDGE_*` environment variables.
 
 | Printer | Transport | Status |
 | --- | --- | --- |
-| Brother QL series (verified: QL-820NWB) | USB, via the OS print system (macOS) | Prints; live status and loaded-media check over IPP |
-| NIIMBOT B1 | Bluetooth LE (macOS, cgo build) | Prints; info, status, RFID roll data, copies |
+| Brother QL series (verified: QL-820NWB) | USB, via the OS print system (macOS 12+, Apple Silicon and Intel) | Prints; live status and loaded-media check over IPP |
+| Brother QL series (verified: QL-820NWB) | USB, driverless on macOS 10.13.4+ (Intel, legacy build); raw-queue fallback | Prints with live status and media on High Sierra; per-label cut fix awaiting re-test |
+| NIIMBOT B1 | Bluetooth LE (macOS, Apple Silicon and Intel) | Prints; info, status, RFID roll data, copies |
 | NIIMBOT B21 | Bluetooth LE / serial | Protocol implemented, not yet verified on hardware |
 | Brother QL over the network (Bonjour/mDNS) | LAN | Planned (Phase 2) |
 
@@ -168,18 +189,22 @@ same version string are the same code.
 All artifacts come from `.github/workflows/build.yml`. Nothing is published
 from a developer machine.
 
-**What is built.** Four targets per run:
+**What is built.** Six targets per run:
 
 | Target | Runner | cgo | Notes |
 | --- | --- | --- | --- |
 | `linux/amd64` | Ubuntu | off | fully static |
 | `linux/arm64` | Ubuntu | off | fully static (Raspberry Pi class hosts) |
 | `windows/amd64` | Ubuntu | off | `bridge.exe` |
-| `darwin/arm64` | macOS | **on** | native build; needed for NIIMBOT Bluetooth (CoreBluetooth) |
+| `darwin/arm64` | macOS | **on** | Apple Silicon; native build, needed for NIIMBOT Bluetooth (CoreBluetooth) |
+| `darwin/amd64` | macOS | **on** | Intel Mac; cgo cross-compiled on the Apple Silicon runner |
+| `darwin/amd64` legacy | macOS | off | macOS 10.13.4+; Go 1.20, `go.legacy.mod`, `-tags legacy`, USB Brother only |
 
-A `darwin/amd64` (Intel Mac) build is required by `Requirements.md` §2 but is
-not in the matrix yet; it will be added as a second cgo build on the macOS
-runner.
+The two standard Mac builds are pinned to macOS 12 as their minimum, run the
+full test suite on the macOS runner (Intel tests under Rosetta 2), and fail the
+build if the binary has the wrong CPU type, a newer minimum macOS, or no
+CoreBluetooth. The legacy job runs its own Go 1.20 test suite as x86_64 and
+checks for a macOS 10.13 minimum. Its version carries a `+legacy` suffix.
 
 **Naming.** `bridge_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows). Each
 archive contains one directory with the binary and a `BUILD_INFO.txt` holding
@@ -187,7 +212,7 @@ the version, target and full commit SHA.
 
 **Where they land.**
 
-- *Pull requests:* `go vet` and `go test` must pass, then all four binaries are
+- *Pull requests:* `go vet` and `go test` must pass, then all six binaries are
   uploaded as workflow artifacts and a sticky PR comment links to the run.
   Artifacts need a GitHub sign-in to download and expire after 14 days.
 - *Merge to master:* the same matrix runs, the binaries are attached to a
@@ -218,6 +243,11 @@ the per-requirement checkboxes.
 - **Enrollment client** implementing RFC 8628, plus OS credential store with a
   `0600` file fallback; token loading wired into the daemon.
 - **Self-install autostart** on macOS via launchd (`bridge install`).
+- **Intel Mac support**: `darwin/amd64` release builds with Bluetooth,
+  macOS 12 minimum for both Mac architectures, and macOS-only tests in CI.
+- **Legacy macOS 10.13 build** for old Intel Macs: Go 1.20 build from the same
+  source, USB Brother QL printing through a raw CUPS queue with bridge-rendered
+  raster, `system_profiler -xml` discovery, and bundled Let's Encrypt roots.
 - **CI/CD**: tests and cross-compile checks on PRs, per-PR binaries, tagged
   GitHub Releases on every merge to master.
 - **NIIMBOT B1/B21 support**: pure-Go protocol package, BLE and serial
@@ -238,7 +268,10 @@ the per-requirement checkboxes.
   printer rename/assign/revoke, job history, hardened reconnect and retry.
 - **Cross-platform parity.** USB discovery and printing on Linux and Windows,
   systemd-user and Task Scheduler autostart, NIIMBOT BLE on Linux (BlueZ) and
-  Windows (WinRT), `darwin/amd64` build.
+  Windows (WinRT), and a hardware test on a physical Intel Mac.
+- **Legacy build field test.** Print end to end from the High Sierra Mac with a
+  QL attached, confirming raster output, cutting and the 10.13 tools
+  (`docs/macos-legacy.md` lists what is unverified).
 - **NIIMBOT follow-ups.** B21 hardware verification, label size from the roll's
   RFID barcode, Bluetooth permission when running under launchd.
 - **Phase 3 production hardening.** Signed and notarized installers (`.pkg`/
@@ -254,11 +287,14 @@ internal/transport/  wss:// dialer + in-memory fake
 internal/enroll/     RFC 8628 device-authorization client
 internal/credstore/  OS credential store with file fallback
 internal/autostart/  launchd (macOS); Linux/Windows TODO
-internal/printer/    Brother backends (USB discovery, CUPS/IPP), virtual printer, renderer
+internal/printer/    Brother backends (USB discovery, CUPS/IPP, raw queues + raster encoder), virtual printer, renderer
 internal/niimbot/    NIIMBOT protocol, BLE and serial transports, raster encoding
 internal/job/        job model and state machine
 internal/ui/         local status web UI and JSON API
-docs/                server contract, NIIMBOT protocol notes, UI design
+internal/tlstrust/   TLS client; bundled Let's Encrypt roots for the legacy build
+internal/compat/     Go 1.20 shims for the legacy build (slog)
+docs/                server contract, NIIMBOT protocol notes, UI design, legacy macOS build
+go.legacy.mod        pinned dependencies for the Go 1.20 legacy build
 ```
 
 ## Development

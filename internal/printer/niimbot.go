@@ -1,3 +1,9 @@
+//go:build !legacy
+
+// NIIMBOT support is compiled out of the legacy Go 1.20 macOS build
+// (`-tags legacy`) because internal/niimbot's Bluetooth and serial libraries
+// need newer Go.
+
 package printer
 
 import (

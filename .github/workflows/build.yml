@@ -6,12 +6,18 @@
 #
 # The bridge is a single Go binary that serves its own local web UI
 # (docs/ui-design.md). Linux and Windows targets cross-compile from one Linux
-# runner with CGO_ENABLED=0. macOS is built natively on a macOS runner with cgo
+# runner with CGO_ENABLED=0. macOS is built on a macOS runner with cgo
 # because NIIMBOT Bluetooth LE support uses CoreBluetooth via cgo
 # (docs/niimbot.md §3); a CGO_ENABLED=0 darwin build still works but ships
-# without BLE (serial/SPP only). Each build is stamped with a build number (the
-# workflow run number) plus the commit SHA, injected into main.version via
-# -ldflags.
+# without BLE (serial/SPP only). Both Mac architectures come from the same
+# Apple Silicon runner: arm64 natively, amd64 (Intel) by cgo cross-compilation
+# with clang -arch x86_64, and its tests run under Rosetta 2. Mac binaries are
+# pinned to MACOS_MIN so they run on older Intel Macs instead of inheriting the
+# runner's macOS version as their minimum. A separate legacy-macos job builds
+# an Intel binary for macOS 10.13.4+ with Go 1.20 (docs/macos-legacy.md). Each
+# build is stamped with a build
+# number (the workflow run number) plus the commit SHA, injected into
+# main.version via -ldflags.
 #
 # Signing / notarization (macOS Gatekeeper, Windows Authenticode) is a Phase 3
 # concern (PhaseMapping.md) and is intentionally not done here.
@@ -26,6 +32,11 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # Oldest macOS the Mac binaries support. Go 1.26 itself requires macOS 12;
+  # without this, clang stamps the runner's own macOS version as the minimum.
+  MACOS_MIN: "12.0"
 
 jobs:
   test:
@@ -64,6 +75,10 @@ jobs:
             goarch: arm64 # Apple Silicon; native cgo build for CoreBluetooth (NIIMBOT BLE)
             runner: macos-latest
             cgo: "1"
+          - goos: darwin
+            goarch: amd64 # Intel Mac; cgo cross-compile on the Apple Silicon runner
+            runner: macos-latest
+            cgo: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +86,35 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
+
+      # cgo honours the deployment target only through compiler/linker flags
+      # that are part of Go's build-cache key; MACOSX_DEPLOYMENT_TARGET alone
+      # can be silently ignored when cached objects are reused.
+      - name: Pin minimum macOS version
+        if: matrix.goos == 'darwin'
+        run: |
+          {
+            echo "MACOSX_DEPLOYMENT_TARGET=${MACOS_MIN}"
+            echo "CGO_CFLAGS=-O2 -g -mmacosx-version-min=${MACOS_MIN}"
+            echo "CGO_LDFLAGS=-mmacosx-version-min=${MACOS_MIN}"
+          } >> "$GITHUB_ENV"
+
+      # The Ubuntu test job cannot run the darwin-only code (USB discovery via
+      # system_profiler, CUPS/IPP, launchd, CoreBluetooth). Run the suite here
+      # for the exact architecture being shipped; amd64 test binaries execute
+      # under Rosetta 2, installed first if the runner image lacks it.
+      - name: Test on macOS (${{ matrix.goarch }})
+        if: matrix.goos == 'darwin'
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          if [ "$GOARCH" = "amd64" ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          go vet ./...
+          go test ./...
 
       - name: Compute version / build number
         id: version
@@ -96,6 +140,20 @@ jobs:
             -ldflags "-s -w -X main.version=${VERSION}" \
             -o "dist/${name}/${bin}" ./cmd/bridge
           echo "${VERSION}  ${GOOS}/${GOARCH}  ${GITHUB_SHA}" > "dist/${name}/BUILD_INFO.txt"
+          if [ "$GOOS" = "darwin" ]; then
+            # Fail rather than ship a Mac binary for the wrong CPU, one that
+            # demands a newer macOS than MACOS_MIN, or one built without BLE.
+            want_arch="$GOARCH"; [ "$GOARCH" = "amd64" ] && want_arch="x86_64"
+            got_arch="$(lipo -archs "dist/${name}/${bin}")"
+            got_min="$(otool -l "dist/${name}/${bin}" | awk '$1 == "minos" {print $2; exit}')"
+            echo "arch=${got_arch} minos=${got_min}"
+            [ "$got_arch" = "$want_arch" ] || { echo "::error::expected arch ${want_arch}, got ${got_arch}"; exit 1; }
+            [ "$got_min" = "$MACOS_MIN" ] || { echo "::error::expected minos ${MACOS_MIN}, got ${got_min}"; exit 1; }
+            otool -L "dist/${name}/${bin}" | grep -q CoreBluetooth \
+              || { echo "::error::binary does not link CoreBluetooth (built without cgo?)"; exit 1; }
+            # Smoke-run the binary (Intel via Rosetta 2).
+            arch "-${want_arch}" "dist/${name}/${bin}" -h > /dev/null
+          fi
           ( cd dist
             if [ "$GOOS" = "windows" ]; then
               zip -qr "${name}.zip" "${name}"
@@ -115,13 +173,82 @@ jobs:
           # are just the handoff to the release job (the Release is durable).
           retention-days: ${{ github.event_name == 'pull_request' && 14 || 7 }}
 
+  # Legacy macOS build for macOS 10.13.4 High Sierra and later on Intel
+  # (docs/macos-legacy.md). Go 1.20 is the last toolchain whose binaries run on
+  # 10.13, so this job builds the same source with Go 1.20, the pinned
+  # dependencies in go.legacy.mod, and -tags legacy (which swaps in Go 1.20
+  # shims, compiles NIIMBOT out, and bundles Let's Encrypt roots). Pure Go, no
+  # cgo. Tests run as x86_64 under Rosetta 2 on the Apple Silicon runner.
+  legacy-macos:
+    name: build darwin/amd64 legacy (macOS 10.13)
+    needs: test
+    runs-on: macos-latest
+    env:
+      GOTOOLCHAIN: local # never let Go 1.20 be swapped for a newer toolchain
+      GOFLAGS: -modfile=go.legacy.mod -tags=legacy
+      GOOS: darwin
+      GOARCH: amd64
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.20.14"
+          cache-dependency-path: go.legacy.sum
+
+      # The NIIMBOT package needs newer Go and is not part of this build, so
+      # list the packages explicitly instead of using ./... .
+      - name: List legacy packages
+        id: pkgs
+        run: |
+          pkgs="$(find cmd internal -name '*.go' | sed 's|/[^/]*$||' | sort -u | grep -v '^internal/niimbot$' | sed 's|^|./|' | tr '\n' ' ')"
+          echo "list=${pkgs}" >> "$GITHUB_OUTPUT"
+          echo "$pkgs"
+
+      - name: Vet and test (x86_64 under Rosetta 2)
+        run: |
+          set -euo pipefail
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          go version
+          go vet ${{ steps.pkgs.outputs.list }}
+          go test ${{ steps.pkgs.outputs.list }}
+
+      - name: Build and verify
+        run: |
+          set -euo pipefail
+          base="0.1.0-b${{ github.run_number }}.${GITHUB_SHA::7}"
+          VERSION="${base}+legacy" # reported to the server; '+' kept out of file names
+          name="bridge_${base}_darwin_amd64_legacy"
+          mkdir -p "dist/${name}"
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${name}/bridge" ./cmd/bridge
+          echo "${VERSION}  darwin/amd64 legacy (macOS 10.13.4+, Go 1.20, USB Brother printers only)  ${GITHUB_SHA}" \
+            > "dist/${name}/BUILD_INFO.txt"
+          got_arch="$(lipo -archs "dist/${name}/bridge")"
+          got_min="$(otool -l "dist/${name}/bridge" | awk '$1 == "minos" {print $2; exit}')"
+          echo "arch=${got_arch} minos=${got_min}"
+          [ "$got_arch" = "x86_64" ] || { echo "::error::expected x86_64, got ${got_arch}"; exit 1; }
+          [ "$got_min" = "10.13" ] || { echo "::error::expected minos 10.13, got ${got_min}"; exit 1; }
+          arch -x86_64 "dist/${name}/bridge" -h > /dev/null
+          ( cd dist && tar -czf "${name}.tar.gz" "${name}" )
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-darwin-amd64-legacy
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 7 }}
+
   # On PRs, post (and keep updating) a sticky comment linking to the artifacts
   # uploaded by the build matrix above, so reviewers can grab the binaries
   # straight from the PR. GitHub has no API to attach a file directly to a PR,
   # so this links to the run's Artifacts section (download needs sign-in).
   pr-artifacts-comment:
     name: link artifacts on PR
-    needs: build
+    needs: [build, legacy-macos]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -143,6 +270,8 @@ jobs:
               '- `bridge-linux-arm64`',
               '- `bridge-windows-amd64`',
               '- `bridge-darwin-arm64` (Apple Silicon)',
+              '- `bridge-darwin-amd64` (Intel Mac)',
+              '- `bridge-darwin-amd64-legacy` (Intel Mac on macOS 10.13.4+, USB Brother only)',
               '',
               `Download them from the **Artifacts** section of [this workflow run](${runUrl}).`,
               '_(GitHub requires sign-in to download workflow artifacts; they expire after 14 days.)_',
@@ -165,7 +294,7 @@ jobs:
   # a tagged GitHub Release, so they are durable and downloadable without sign-in.
   release:
     name: publish release
-    needs: build
+    needs: [build, legacy-macos]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -175,6 +304,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist # each artifact lands in dist/<artifact-name>/
+
+      # Policy: every release ships the full asset set, including the Intel
+      # legacy build for macOS 10.13 (docs/macos-legacy.md). Refuse to publish
+      # a release that is missing any of them.
+      - name: Check every platform asset is present
+        run: |
+          set -euo pipefail
+          missing=0
+          for a in linux-amd64 linux-arm64 windows-amd64 darwin-arm64 darwin-amd64 darwin-amd64-legacy; do
+            if compgen -G "dist/bridge-${a}/*.tar.gz" >/dev/null || compgen -G "dist/bridge-${a}/*.zip" >/dev/null; then
+              echo "ok   bridge-${a}: $(ls dist/bridge-${a})"
+            else
+              echo "::error::release asset bridge-${a} is missing"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

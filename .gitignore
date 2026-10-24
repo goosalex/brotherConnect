@@ -1,3 +1,6 @@
 # IntelliJ IDEA / JetBrains IDE files
 .idea/
 *.iml
+
+# Local build output (CI writes its archives to dist/ too)
+dist/

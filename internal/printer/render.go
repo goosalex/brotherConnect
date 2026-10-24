@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 )
 
 // flattenOnWhite composites src over an opaque white background. PDFs (and some
@@ -74,6 +75,14 @@ func looksLikeBrotherRaster(doc []byte) bool {
 // rasterizePDF converts the first page of a PDF to an image using macOS `sips`.
 // On platforms without sips it returns an error and the caller saves the raw PDF.
 func rasterizePDF(ctx context.Context, pdf []byte) (image.Image, error) {
+	// -Z renders the PDF into a high-resolution raster (crisp vector rendering,
+	// not an upscale of the 72dpi default) so the captured label is legible.
+	return rasterizePDFAt(ctx, pdf, 1200)
+}
+
+// rasterizePDFAt renders the first page of a PDF with its longer side maxPx
+// pixels long.
+func rasterizePDFAt(ctx context.Context, pdf []byte, maxPx int) (image.Image, error) {
 	dir, err := os.MkdirTemp("", "bc-pdf-*")
 	if err != nil {
 		return nil, err
@@ -85,9 +94,7 @@ func rasterizePDF(ctx context.Context, pdf []byte) (image.Image, error) {
 	if err := os.WriteFile(in, pdf, 0o600); err != nil {
 		return nil, err
 	}
-	// -Z renders the PDF into a high-resolution raster (crisp vector rendering,
-	// not an upscale of the 72dpi default) so the captured label is legible.
-	cmd := exec.CommandContext(ctx, "sips", "-s", "format", "png", "-Z", "1200", in, "--out", out)
+	cmd := exec.CommandContext(ctx, "sips", "-s", "format", "png", "-Z", strconv.Itoa(maxPx), in, "--out", out)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("sips rasterize (is this macOS?): %w", err)
 	}
