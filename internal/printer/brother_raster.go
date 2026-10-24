@@ -178,7 +178,9 @@ func BrotherRaster(ctx context.Context, doc []byte, model string, opts PrintOpti
 	if err != nil {
 		return nil, err
 	}
-	length = clampInt(length, m.minLength, m.maxLength)
+	if !media.dieCut {
+		length = clampInt(length, m.minLength, m.maxLength)
+	}
 
 	var img image.Image
 	if bytes.HasPrefix(doc, []byte("%PDF")) {
