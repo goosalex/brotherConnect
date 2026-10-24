@@ -86,7 +86,7 @@ var brotherDieCut = []brotherMedia{
 	{widthMM: 62, lengthMM: 29, dieCut: true, printable: 696, length: 271, offsetR: 12},
 	{widthMM: 62, lengthMM: 100, dieCut: true, printable: 696, length: 1109, offsetR: 12},
 	{widthMM: 102, lengthMM: 51, dieCut: true, printable: 1164, length: 526, offsetR: 12},
-	{widthMM: 102, lengthMM: 152, dieCut: true, printable: 1164, length: 1660, offsetR: 12},
+	{widthMM: 102, lengthMM: 153, dieCut: true, printable: 1164, length: 1660, offsetR: 12},
 }
 
 const brotherDPI = 300.0
