@@ -4,9 +4,11 @@ package printer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,13 +17,29 @@ import (
 // relatively heavy, so this is deliberately not sub-second.
 const DefaultUSBPollInterval = 3 * time.Second
 
-// scanFunc returns the raw `system_profiler SPUSBDataType -json` output. It is a
-// field so tests can inject a fixture instead of shelling out.
+// scanFunc returns the raw `system_profiler SPUSBDataType` output (JSON or XML
+// plist). It is a field so tests can inject a fixture instead of shelling out.
 type scanFunc func(ctx context.Context) ([]byte, error)
 
-// systemProfilerScan runs the real system_profiler command.
+// spUseXML is set once system_profiler has failed to produce JSON. -json only
+// exists from macOS 10.15, so on older releases (10.13 High Sierra) every later
+// poll goes straight to -xml instead of running the tool twice.
+var spUseXML atomic.Bool
+
+// systemProfilerScan runs the real system_profiler command, preferring -json
+// and falling back to the -xml property list.
 func systemProfilerScan(ctx context.Context) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, "system_profiler", "SPUSBDataType", "-json").Output()
+	if !spUseXML.Load() {
+		out, err := exec.CommandContext(ctx, "system_profiler", "SPUSBDataType", "-json").Output()
+		if err == nil && json.Valid(out) {
+			return out, nil
+		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("run system_profiler: %w", ctx.Err())
+		}
+		spUseXML.Store(true)
+	}
+	out, err := exec.CommandContext(ctx, "system_profiler", "SPUSBDataType", "-xml").Output()
 	if err != nil {
 		return nil, fmt.Errorf("run system_profiler: %w", err)
 	}

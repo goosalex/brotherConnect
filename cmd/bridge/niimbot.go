@@ -1,3 +1,9 @@
+//go:build !legacy
+
+// NIIMBOT support needs newer Go than 1.20 (its Bluetooth and serial libraries
+// do), so it is compiled out of the legacy macOS build (`-tags legacy`);
+// niimbot_legacy.go provides the stand-ins there.
+
 package main
 
 import (
@@ -12,9 +18,29 @@ import (
 	"strings"
 	"time"
 
+	"brotherConnect/internal/config"
 	"brotherConnect/internal/niimbot"
 	"brotherConnect/internal/printer"
 )
+
+// withNiimbot merges NIIMBOT printers (Bluetooth LE and/or serial) into the
+// daemon's discoverer and driver. It returns the inputs unchanged when NIIMBOT
+// is disabled, or when BLE is not compiled in and no serial ports are set.
+func withNiimbot(cfg config.Config, disc printer.Discoverer, driver printer.Driver, log *slog.Logger) (printer.Discoverer, printer.Driver) {
+	if !cfg.Niimbot && len(cfg.NiimbotSerial) == 0 {
+		return disc, driver
+	}
+	if !niimbot.BLEAvailable() && len(cfg.NiimbotSerial) == 0 {
+		log.Warn("NIIMBOT support disabled: BLE not available in this build (macOS needs cgo); set -niimbot-serial to use a serial port")
+		return disc, driver
+	}
+	nb := printer.NewNiimbotBackend(printer.NiimbotOptions{
+		SerialPorts: cfg.NiimbotSerial,
+		DisableBLE:  !cfg.Niimbot || !niimbot.BLEAvailable(),
+		Log:         log,
+	})
+	return printer.NewMultiDiscoverer(disc, nb), printer.NewMultiDriver(driver, nb)
+}
 
 // runNiimbot implements the `bridge niimbot <scan|info|print>` one-shot
 // commands used to validate the NIIMBOT path against real hardware

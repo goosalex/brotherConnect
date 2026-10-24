@@ -19,6 +19,9 @@ type fakeRunner struct {
 	lpStdin    []byte // captured stdin of the last `lp` call
 	lpErr      error
 	statErr    error
+	lpinfoOut  []byte // `lpinfo -v` output
+	lpadminErr error
+	lpoptsOut  []byte // `lpoptions -p Q -l` output
 }
 
 type recordedCall struct {
@@ -40,6 +43,12 @@ func (f *fakeRunner) run(_ context.Context, name string, args []string, stdin []
 	case name == "lp":
 		f.lpStdin = stdin
 		return nil, f.lpErr
+	case name == "lpinfo":
+		return f.lpinfoOut, nil
+	case name == "lpadmin":
+		return nil, f.lpadminErr
+	case name == "lpoptions":
+		return f.lpoptsOut, nil
 	}
 	return nil, nil
 }
@@ -54,7 +63,7 @@ func contains(ss []string, s string) bool {
 }
 
 func newCUPS(r commandRunner) *cupsDriver {
-	return &cupsDriver{runner: r, known: map[string]Printer{}, endpoints: map[string]string{}}
+	return &cupsDriver{runner: r, known: map[string]Printer{}, endpoints: map[string]string{}, cuts: map[string]bool{}}
 }
 
 func TestCUPSPrintResolvesQueueAndSubmitsDocument(t *testing.T) {

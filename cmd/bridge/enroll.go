@@ -3,15 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
 	"time"
 
+	"brotherConnect/internal/compat/slog"
 	"brotherConnect/internal/config"
 	"brotherConnect/internal/credstore"
 	"brotherConnect/internal/enroll"
+	"brotherConnect/internal/tlstrust"
 )
 
 // runEnroll performs the OAuth 2.0 Device Authorization Grant (RFC 8628) against
@@ -34,6 +35,8 @@ func runEnroll(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// nil except in the legacy macOS 10.13 build, which needs bundled roots.
+	ecfg.HTTPClient = tlstrust.HTTPClient(30 * time.Second)
 
 	// The device flow can take a while (the user signs in and authorizes in a
 	// browser); bound it by the code's own expiry, handled server-side.

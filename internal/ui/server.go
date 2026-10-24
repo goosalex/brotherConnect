@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
-	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"brotherConnect/internal/bridge"
+	"brotherConnect/internal/compat/slog"
 )
 
 // DefaultAddr is the loopback address the UI binds by default.

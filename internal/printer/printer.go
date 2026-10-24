@@ -94,6 +94,14 @@ type PrintOptions struct {
 	HeightMM float64
 }
 
+// DriverOptions configures the system print driver.
+type DriverOptions struct {
+	// Roll is the DK roll kind loaded in Brother printers that are driven
+	// through a raw queue (macOS 10.13, docs/macos-legacy.md), where the bridge
+	// cannot read it from the printer. Ignored on the driverless path.
+	Roll RollKind
+}
+
 // Driver sends a printable document to a printer and reports its status.
 //
 // The document is a platform-printable payload, not necessarily native Brother
@@ -113,6 +121,13 @@ type Driver interface {
 // so the bridge can supply full printer descriptors from discovery.
 type Registrar interface {
 	Register(Printer)
+}
+
+// PathDescriber is an optional Driver capability that explains in one line how
+// a printer is reached (queue, print path, cutting), for diagnostics such as
+// `bridge list`.
+type PathDescriber interface {
+	DescribePath(ctx context.Context, id string) string
 }
 
 // MediaReporter is an optional Driver capability to read the media size (in mm)

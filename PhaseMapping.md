@@ -30,6 +30,8 @@ Goal: prove the local print path end-to-end with minimal auth.
 | Item | Req | Depends on | Status |
 | --- | --- | --- | --- |
 | Go bridge on one target platform (macOS) | §2 | — | ☑ |
+| macOS Intel build (darwin/amd64, with BLE) | §2 | cgo cross-compile on Apple Silicon; Rosetta 2 for tests | ◐ |
+| Legacy macOS 10.13 build (Intel, USB QL via raw queue) | §2, §8 | Go 1.20; High Sierra Mac + QL for field test | ◐ |
 | WSS connection with dev token | §5 | Phase 0 contract, trencitos WSS endpoint | ◐ |
 | Basic reconnect | §5, §16 | WSS connection | ☑ |
 | USB discovery (Brother QL) | §6 | system_profiler (macOS, no cgo) | ☑ |
@@ -62,6 +64,35 @@ Goal: prove the local print path end-to-end with minimal auth.
   the real QL-820NWB, which also reports its loaded media (12x12mm) used for the
   §8 size check. Falls back to lpstat only if ipptool is unavailable.
 - trencitos UI (⊘): server-side, out of scope for this repo.
+- macOS Intel (◐): CI now ships `darwin/amd64` alongside `darwin/arm64`, both
+  cgo builds with CoreBluetooth, cross-compiled on the Apple Silicon runner and
+  pinned to a macOS 12 minimum (clang otherwise stamps the build host's macOS
+  version, which would lock out older Intel Macs). The full test suite, including
+  the darwin-only USB/CUPS/launchd tests, runs as x86_64 under Rosetta 2, and a
+  local x86_64 build passed `bridge list`, a `-virtual` PDF render via `sips`,
+  and a BLE scan under Rosetta. Not yet run on a physical Intel Mac with a
+  printer attached; that is what moves this to ☑.
+- Legacy macOS 10.13 (◐): see `docs/macos-legacy.md`. Go 1.26 binaries need
+  macOS 12, so a second build uses Go 1.20 (`go.legacy.mod`, `-tags legacy`)
+  from the same source, minimum macOS 10.13.4 (Go 1.20 binaries need
+  `SecTrustEvaluateWithError`, first exported in 10.13.4). Without Brother's
+  driver, High Sierra has no driverless USB path, so the bridge renders Brother
+  raster itself and prints through a raw CUPS queue created by
+  `sudo bridge setup-usb`; discovery falls back to `system_profiler -xml`; the
+  TLS client bundles Let's Encrypt roots because High Sierra's store lacks ISRG
+  Root X2. NIIMBOT is compiled out. Built, tested as x86_64 under Rosetta with
+  Go 1.20 (CI job `legacy-macos`), and TLS to both trencitos hosts verified with
+  the bundled roots alone. Not yet run on a High Sierra Mac with a printer.
+  Status and loaded media are not readable over a raw queue (§9a gap for this
+  build only), so the roll kind is configured with `-roll continuous|die-cut`
+  (default continuous). Field test on the High Sierra iMac (CUPS 2.2,
+  QL-820NWB, continuous tape): 10.13 drives the QL driverlessly over USB
+  (`ippusb://`), so the bridge used that queue, not the raw one, and prints
+  well with live status and media. Labels were not cut: the AirPrint queue's
+  IPP finishings-default is "none". Every driverless job now names the cut
+  (`CutMedia=EndOfPage`, `finishings=60`), and the raw queue is used only when
+  no cutting driverless queue exists; physical cut not yet re-confirmed. This
+  applies to the standard macOS builds too, which share the driver.
 
 ## Phase 2 — Core product
 
@@ -130,7 +161,7 @@ Goal: print on NIIMBOT B1/B21 over Bluetooth with the same job model. Spec:
 from macOS. Serial/SPP (◐) answers correctly but the macOS SPP link wedged
 after an aborted unpaced print and did not recover in-session, so it is a
 fallback (`-niimbot-serial`). The macOS release binary must be a cgo build
-(CI now builds darwin on a macOS runner); a CGO_ENABLED=0 darwin build runs
+(CI builds both Mac architectures with cgo on a macOS runner); a CGO_ENABLED=0 darwin build runs
 without BLE.
 
 ## Phase 3 — Production hardening
