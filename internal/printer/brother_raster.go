@@ -80,7 +80,7 @@ var brotherDieCut = []brotherMedia{
 	{widthMM: 23, lengthMM: 23, dieCut: true, printable: 202, length: 202, offsetR: 42},
 	{widthMM: 29, lengthMM: 42, dieCut: true, printable: 306, length: 425, offsetR: 6},
 	{widthMM: 29, lengthMM: 90, dieCut: true, printable: 306, length: 991, offsetR: 6},
-	{widthMM: 39, lengthMM: 90, dieCut: true, printable: 413, length: 991, offsetR: 12},
+	{widthMM: 38, lengthMM: 90, dieCut: true, printable: 413, length: 991, offsetR: 12},
 	{widthMM: 39, lengthMM: 48, dieCut: true, printable: 425, length: 495, offsetR: 6},
 	{widthMM: 52, lengthMM: 29, dieCut: true, printable: 578, length: 271, offsetR: 0},
 	{widthMM: 62, lengthMM: 29, dieCut: true, printable: 696, length: 271, offsetR: 12},
